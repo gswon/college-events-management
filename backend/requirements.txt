@@ -1,0 +1,11 @@
+# 설치: ~/miniconda3/envs/eventapp/bin/python -m pip install -r requirements.txt
+fastapi==0.142.2
+uvicorn==0.54.0
+pydantic==2.13.5
+SQLAlchemy==2.1.1
+PyMySQL==1.2.3
+python-dotenv==1.2.3
+
+# 테스트
+pytest==9.1.1
+httpx2==2.13.1
