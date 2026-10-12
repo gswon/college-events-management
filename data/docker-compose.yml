@@ -1,0 +1,32 @@
+# 로컬 개발용 MySQL. 처음 실행할 때 NYUEventSchema.sql + schema_ingest.sql 이 자동으로 적용된다.
+#   docker compose up -d
+#   (스키마를 다시 적용하려면: docker compose down -v && docker compose up -d)
+# 프로젝트 이름 고정 (폴더 이름이 'data' 라서 다른 프로젝트와 헷갈리지 않게)
+name: nyu-events
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: nyu-events-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root-change-me
+      MYSQL_DATABASE: nyu_calendar
+      MYSQL_USER: nyu_ingest
+      MYSQL_PASSWORD: change-me
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./NYUEventSchema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ./schema_ingest.sql:/docker-entrypoint-initdb.d/002_schema_ingest.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  mysql-data:
