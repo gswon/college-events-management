@@ -1,0 +1,14 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//uConnect//Events//EN
+BEGIN:VEVENT
+UID:237848@wasserman.nyu.edu
+DTSTAMP:20260829T125707Z
+DTSTART:20261007T160000Z
+DTEND:20261007T180000Z
+SUMMARY:UBS Investment Banking Info Session
+LOCATION:NYU Kimmel Center \, Eisner & Lubin Auditorium\, 60 Washington Square South\, New York\, New York 10012\, United States
+DESCRIPTION:Exclusive on-campus info session with Global Banking NYU alums.
+URL:https://wasserman.nyu.edu/events/2026/10/07/ubs-investment-banking-info-session/
+END:VEVENT
+END:VCALENDAR

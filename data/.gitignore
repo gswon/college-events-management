@@ -1,0 +1,12 @@
+.env
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+.venv/
+venv/
+.DS_Store
+
+# Claude Code 작업용 (공유 안 함)
+CLAUDE.md
+.claude/

@@ -1,0 +1,3 @@
+# 테스트용 (로컬에서만): pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=8.0
