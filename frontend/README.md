@@ -29,10 +29,8 @@ The PDF is a visual reference, not an inspectable Figma component file. Sizes/co
 
 Demo mode deliberately uses Wednesday, Sep 30, Joanna/JC, and the exact three events from the design. The design labels say THU OCT 2 and MON OCT 6 even though those dates are Friday and Tuesday in 2026. Those labels are preserved ONLY in demo data. Real data uses correct New York dates and daylight-saving-aware times.
 
-## Connect the backend later
+## Backend
 
-The app currently uses src/data/events.ts; no server URL or authentication was supplied. src/services/api.ts is provided but is not called by the Home screen yet. Confirm event response fields with the backend team: the specification lists event storage fields but does not define a full events-list response example.
+The Home screen loads the first page (20 events) of GET /api/v1/events for the next 14 days. Copy .env.example to .env and set EXPO_PUBLIC_API_URL to the backend origin (without /api/v1). On a physical phone use your Mac's LAN IP, not localhost, and start the backend with `--host 0.0.0.0`. Restart `npx expo start` after changing .env.
 
-Create an API client using your backend origin (without /api/v1) and a callback supplying an access token from your team's login flow. Request a window of at most 92 days. The response is {items, next_cursor}; fetch subsequent pages using next_cursor as needed. Sort events by start_at before display. Replace demoNow with new Date() and remove designDate overrides for live events. Add loading, retry, empty and refresh states when wiring this into the team's data layer. On a physical phone use a reachable server/LAN address, not localhost.
-
-Authentication, refresh-cookie behavior on native devices, event details and the other tabs remain team integration work. Never put passwords or access tokens in committed files.
+The user name/avatar is still demo data: the backend has no /users/me or authentication yet. Event details and the other tabs remain team integration work. Never put passwords or access tokens in committed files.
