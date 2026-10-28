@@ -1,3 +1,4 @@
+
 {
   "expo": {
     "name": "NYU Event Calendar",
@@ -6,11 +7,20 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dpark7.nyu-event-calendar"
     },
     "android": {},
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ]
     ]
   }
 }
