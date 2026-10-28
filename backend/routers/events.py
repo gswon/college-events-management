@@ -1,5 +1,4 @@
 import re
-from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -12,19 +11,15 @@ from database import get_db
 from errors import APIError
 from pagination import decode_cursor, encode_cursor
 from schemas import EventDetail, EventListItem, Page
+from timeutil import utc_range
 
 router = APIRouter(tags=["events"])
 
 db_dependency = Annotated[Session, Depends(get_db)]
 
-MAX_RANGE = timedelta(days=92)
 # InnoDB FULLTEXT 기본 innodb_ft_min_token_size. 이보다 짧은 단어는 인덱스에 없다.
 FT_MIN_TOKEN = 3
 _FT_OPERATORS = re.compile(r'[+\-<>()~*"@]')
-
-
-def _to_utc_naive(value: datetime) -> datetime:
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _search_condition(q: str):
@@ -57,11 +52,7 @@ def list_events(
     cursor: Optional[str] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ):
-    start_utc, end_utc = _to_utc_naive(start), _to_utc_naive(end)
-    if end_utc <= start_utc:
-        raise APIError(400, "INVALID_RANGE", "end는 start보다 뒤여야 합니다.")
-    if end_utc - start_utc > MAX_RANGE:
-        raise APIError(400, "INVALID_RANGE", "조회 기간은 최대 92일입니다.")
+    start_utc, end_utc = utc_range(start, end)
     if followed_only:
         # 인증이 붙으면 organization_follows로 필터링한다.
         raise APIError(401, "AUTH_REQUIRED", "followed_only는 로그인이 필요합니다.")

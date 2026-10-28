@@ -44,7 +44,13 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
     return _error_response(422, "VALIDATION_ERROR", "; ".join(parts))
 
 
+async def _unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    # 내부 정보가 새지 않게 메시지는 고정한다. Starlette가 응답 후 예외를 다시 던지므로 traceback은 서버 로그에 남는다.
+    return _error_response(500, "INTERNAL_ERROR", "서버 오류가 발생했습니다.")
+
+
 def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(APIError, _api_error_handler)
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_error_handler)
+    app.add_exception_handler(Exception, _unhandled_error_handler)
