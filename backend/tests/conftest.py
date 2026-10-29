@@ -81,3 +81,26 @@ def make_event(session: Session, start_at: datetime, end_at: datetime, **fields)
     session.add(event)
     session.flush()
     return event
+
+
+def make_user(session: Session, name: str = "Test User", **fields) -> models.User:
+    values = dict(email=f"pytest-{uuid.uuid4().hex[:12]}@nyu.edu", password_hash="-", display_name=name)
+    values.update(fields)
+    user = models.User(**values)
+    session.add(user)
+    session.flush()
+    return user
+
+
+def as_user(user: models.User) -> dict:
+    """auth.py의 개발용 인증 헤더."""
+    return {"X-User-Id": str(user.id)}
+
+
+def make_entry(session: Session, user: models.User, start_at: datetime, end_at: datetime, **fields) -> models.CalendarEntry:
+    values = dict(user_id=user.id, kind="PERSONAL", title="Test Entry", start_at=start_at, end_at=end_at, is_all_day=False)
+    values.update(fields)
+    entry = models.CalendarEntry(**values)
+    session.add(entry)
+    session.flush()
+    return entry
