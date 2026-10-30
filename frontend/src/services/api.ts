@@ -17,7 +17,7 @@ export function createApi(baseUrl: string, getAccessToken: () => string | undefi
   return {
     me: (signal?: AbortSignal) => get<User>('/users/me', signal),
     events: (start: Date, end: Date, cursor?: string, signal?: AbortSignal) => {
-      const params = new URLSearchParams({ start: start.toISOString(), end: end.toISOString(), limit: '20' });
+      const params = new URLSearchParams({ start: start.toISOString(), end: end.toISOString(), limit: '100' });
       if (cursor) params.set('cursor', cursor);
       return get<Page<CampusEvent>>(`/events?${params}`, signal);
     },

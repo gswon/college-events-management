@@ -14,6 +14,7 @@ import { Feather } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CampusEvent } from './src/data/events';
 import { createApi } from './src/services/api';
+import CalendarScreen from './src/screens/CalendarScreen';
 
 // Keep the same API configuration you were using previously.
 const api = createApi('http://127.0.0.1:8000', () => undefined);
@@ -104,17 +105,28 @@ function EventCard({ event }: { event: ApiEvent }) {
   );
 }
 
-function BottomNavigation() {
+type Screen = 'Home' | 'Calendar' | 'Profile';
+
+function BottomNavigation({
+  activeScreen,
+  onChangeScreen,
+}: {
+  activeScreen: Screen;
+  onChangeScreen: (screen: Screen) => void;
+}) {
   const { bottom } = useSafeAreaInsets();
+
   const tabs = [
     { label: 'Home', icon: 'home' },
     { label: 'Calendar', icon: 'calendar' },
     { label: 'Profile', icon: 'user' },
   ] as const;
+
   return (
     <View style={[styles.tabBar, { paddingBottom: Math.max(bottom, 10) }]}>
       {tabs.map(tab => {
-        const selected = tab.label === 'Home';
+        const selected = tab.label === activeScreen;
+
         return (
           <Pressable
             key={tab.label}
@@ -122,11 +134,21 @@ function BottomNavigation() {
             accessibilityState={{ selected }}
             style={styles.tab}
             onPress={() => {
-              if (!selected) Alert.alert(tab.label, `${tab.label} screen is coming next.`);
+              if (tab.label === 'Profile') {
+                Alert.alert('Profile', 'Profile screen is coming next.');
+              } else {
+                onChangeScreen(tab.label);
+              }
             }}
           >
-            <Feather name={tab.icon} size={25} color={selected ? '#171717' : '#B6B6BA'} />
-            <Text style={[styles.tabText, selected && styles.selectedTabText]}>{tab.label}</Text>
+            <Feather
+              name={tab.icon}
+              size={25}
+              color={selected ? '#171717' : '#B6B6BA'}
+            />
+            <Text style={[styles.tabText, selected && styles.selectedTabText]}>
+              {tab.label}
+            </Text>
             <View style={[styles.tabDot, selected && styles.selectedTabDot]} />
           </Pressable>
         );
@@ -136,6 +158,7 @@ function BottomNavigation() {
 }
 
 export default function App() {
+  const [activeScreen, setActiveScreen] = useState<Screen>('Home');
   const [now, setNow] = useState(() => new Date());
   const [events, setEvents] = useState<ApiEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -225,9 +248,12 @@ export default function App() {
   });
 
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
+  <SafeAreaProvider>
+    <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
+      {activeScreen === 'Calendar' ? (
+        <CalendarScreen />
+      ) : (
         <ScrollView
   style={styles.scroll}
   contentContainerStyle={styles.scrollContent}
@@ -307,9 +333,13 @@ export default function App() {
               {loadingMore ? <ActivityIndicator color="#57068C" /> : <Text style={styles.loadMoreText}>Load more events</Text>}
             </Pressable>
           )}
-        </ScrollView>
-        <BottomNavigation />
-      </SafeAreaView>
+      </ScrollView>
+      )}
+      <BottomNavigation
+        activeScreen={activeScreen}
+        onChangeScreen={setActiveScreen}
+      />
+    </SafeAreaView>
     </SafeAreaProvider>
   );
 }
