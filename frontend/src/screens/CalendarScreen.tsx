@@ -18,6 +18,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 
 import { createApi } from '../services/api';
+import { calendarFriendsApi } from '../services/calendarFriendsApi';
 import type { CampusEvent } from '../data/events';
 
 const api = createApi('http://127.0.0.1:8000', () => undefined);
@@ -86,11 +87,24 @@ export default function CalendarScreen() {
   );
 
   const [showAddEvent, setShowAddEvent] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<PersonalEvent | null>(null);
   const [personalEvents, setPersonalEvents] = useState<PersonalEvent[]>([]);
+  const [overlayFriends, setOverlayFriends] = useState<
+    { id: number; name: string }[]
+  >([]);
+  const [selectedFriendIds, setSelectedFriendIds] = useState<number[]>([]);
+  const [overlayItems, setOverlayItems] = useState<
+    { userId: number; name: string; item: import('../services/calendarFriendsApi').CalendarItem }[]
+  >([]);
+  const [overlayLoading, setOverlayLoading] = useState(false);
+  const [overlayError, setOverlayError] = useState<string | null>(null);
+
+  const [backendEvents, setBackendEvents] = useState<PersonalEvent[]>([]);
+  const allPersonalEvents = [...personalEvents, ...backendEvents];
   function hasPersonalEvent(day: number) {
   const date = new Date(year, month, day);
 
-  return personalEvents.some((event) =>
+  return allPersonalEvents.some((event) =>
     isSameDay(new Date(event.start_at), date)
   );
 }
@@ -122,6 +136,54 @@ export default function CalendarScreen() {
 
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
+
+  // Load personal events saved in the local test Backend (port 8001).
+  useEffect(() => {
+    let active = true;
+
+    async function loadBackendEvents() {
+      try {
+        const start = new Date(year, month, 1).toISOString();
+        const end = new Date(year, month + 1, 1).toISOString();
+
+        const items = await calendarFriendsApi.getMyCalendar(start, end);
+
+        const mapped: PersonalEvent[] = items
+          .filter(
+            (item) =>
+              item.type === 'PERSONAL' &&
+              item.id !== undefined &&
+              typeof item.title === 'string'
+          )
+          .map((item) => ({
+            id: `backend-${item.id}`,
+            title: item.title!,
+            start_at: item.start_at,
+            end_at: item.end_at,
+            is_all_day: item.is_all_day ?? false,
+            location: item.location ?? '',
+            notes: '',
+          }));
+
+        if (active) {
+          setBackendEvents(mapped);
+        }
+      } catch (error) {
+        console.error('Failed to load Backend calendar:', error);
+        if (active) {
+          setBackendEvents([]);
+        }
+      }
+    }
+
+    setBackendEvents([]);
+    void loadBackendEvents();
+
+    return () => {
+      active = false;
+    };
+  }, [year, month]);
+
 
   const firstWeekday = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -218,7 +280,103 @@ const selectedEvents = events
       new Date(b.start_at).getTime()
   );
 
-  const selectedPersonalEvents = personalEvents
+  useEffect(() => {
+    if (activeTab !== 'Friends') return;
+
+    let active = true;
+
+    calendarFriendsApi.getFriends()
+      .then((friends) => {
+        if (!active) return;
+
+        const available = friends.map((friend) => ({
+          id: friend.user.id,
+          name: friend.user.display_name,
+        }));
+
+        setOverlayFriends(available);
+        setSelectedFriendIds((previous) =>
+          previous.filter((id) =>
+            available.some((friend) => friend.id === id)
+          )
+        );
+      })
+      .catch((err) => {
+        if (active) {
+          setOverlayError(
+            err instanceof Error ? err.message : 'Could not load friends.'
+          );
+        }
+      });
+
+    return () => { active = false; };
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'Friends' || selectedFriendIds.length === 0) {
+      setOverlayItems([]);
+      setOverlayLoading(false);
+      return;
+    }
+
+    let active = true;
+    setOverlayLoading(true);
+    setOverlayError(null);
+
+    const start = new Date(year, month, 1).toISOString();
+    const end = new Date(year, month + 1, 1).toISOString();
+
+    calendarFriendsApi
+      .getCalendarOverlay(selectedFriendIds, start, end)
+      .then((calendars) => {
+        if (!active) return;
+
+        const selected = new Set(selectedFriendIds);
+        const combined = calendars
+          .filter((calendar) => selected.has(calendar.user_id))
+          .flatMap((calendar) => {
+            const friend = overlayFriends.find(
+              (item) => item.id === calendar.user_id
+            );
+
+            return calendar.items.map((item) => ({
+              userId: calendar.user_id,
+              name: friend?.name ?? `User ${calendar.user_id}`,
+              item,
+            }));
+          });
+
+        setOverlayItems(combined);
+      })
+      .catch((err) => {
+        if (active) {
+          setOverlayError(
+            err instanceof Error ? err.message : 'Could not load schedules.'
+          );
+          setOverlayItems([]);
+        }
+      })
+      .finally(() => {
+        if (active) setOverlayLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [activeTab, year, month, selectedFriendIds, overlayFriends]);
+
+  const selectedOverlayItems = overlayItems
+    .filter(({ item }) => {
+      const start = new Date(item.start_at);
+      const end = new Date(item.end_at);
+      return start <= selectedDate && end > selectedDate ||
+        isSameDay(start, selectedDate);
+    })
+    .sort(
+      (a, b) =>
+        new Date(a.item.start_at).getTime() -
+        new Date(b.item.start_at).getTime()
+    );
+
+  const selectedPersonalEvents = allPersonalEvents
   .filter((event) => {
     const date = new Date(event.start_at);
     return isSameDay(date, selectedDate);
@@ -239,6 +397,148 @@ const selectedEvents = events
     setSelectedDate(new Date(year, month, day));
   }
 
+
+  function openPersonalEventActions(event: PersonalEvent) {
+    if (!event.id.startsWith('backend-')) {
+      Alert.alert(
+        'Local Event',
+        'This event was saved before Backend integration. It has not been migrated.'
+      );
+      return;
+    }
+
+    const entryId = Number(event.id.slice('backend-'.length));
+
+    if (!Number.isSafeInteger(entryId) || entryId <= 0) {
+      Alert.alert('Error', 'Invalid Backend event ID.');
+      return;
+    }
+
+    Alert.alert(
+      event.title,
+      'What would you like to do?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Edit',
+          onPress: async () => {
+            try {
+              const detail = await calendarFriendsApi.getPersonalEntry(entryId);
+
+              setEditingEvent({
+                id: event.id,
+                title: detail.title,
+                start_at: detail.start_at,
+                end_at: detail.end_at,
+                is_all_day: detail.is_all_day ?? false,
+                location: detail.location ?? '',
+                notes: detail.description ?? '',
+              });
+            } catch (error) {
+              Alert.alert(
+                'Could not open event',
+                error instanceof Error
+                  ? error.message
+                  : 'Failed to load event details.'
+              );
+            }
+          },
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Delete Event?',
+              'This event will be permanently deleted.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      await calendarFriendsApi.deletePersonalEntry(entryId);
+
+                      setBackendEvents((current) =>
+                        current.filter((item) => item.id !== event.id)
+                      );
+                    } catch (error) {
+                      Alert.alert(
+                        'Delete failed',
+                        error instanceof Error
+                          ? error.message
+                          : 'Could not delete the event.'
+                      );
+                    }
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
+  }
+
+  if (editingEvent) {
+    return (
+      <AddEventScreen
+        key={editingEvent.id}
+        selectedDate={new Date(editingEvent.start_at)}
+        initialEvent={editingEvent}
+        onCancel={() => setEditingEvent(null)}
+        onSave={async (updatedEvent) => {
+          const entryId = Number(
+            editingEvent.id.slice('backend-'.length)
+          );
+
+          try {
+            const updated = await calendarFriendsApi.updatePersonalEntry(
+              entryId,
+              {
+                title: updatedEvent.title,
+                description: updatedEvent.notes,
+                location: updatedEvent.location,
+                start_at: updatedEvent.start_at,
+                end_at: updatedEvent.end_at,
+                is_all_day: updatedEvent.is_all_day,
+              }
+            );
+
+            setBackendEvents((current) =>
+              current.map((item) =>
+                item.id === editingEvent.id
+                  ? {
+                      ...updatedEvent,
+                      id: editingEvent.id,
+                      start_at: updated.start_at,
+                      end_at: updated.end_at,
+                    }
+                  : item
+              )
+            );
+
+            const nextDate = new Date(updated.start_at);
+
+            setSelectedDate(nextDate);
+            setVisibleMonth(
+              new Date(nextDate.getFullYear(), nextDate.getMonth(), 1)
+            );
+            setEditingEvent(null);
+          } catch (error) {
+            Alert.alert(
+              'Update failed',
+              error instanceof Error
+                ? error.message
+                : 'Could not save changes.'
+            );
+          }
+        }}
+      />
+    );
+  }
+
   if (showAddEvent) {
   return (
     <AddEventScreen
@@ -246,9 +546,22 @@ const selectedEvents = events
       onCancel={() => setShowAddEvent(false)}
       onSave={async (event) => {
         try {
-          const updatedEvents = await savePersonalEvent(event);
+          const created = await calendarFriendsApi.createPersonalEntry({
+            title: event.title,
+            description: event.notes || null,
+            location: event.location || null,
+            start_at: event.start_at,
+            end_at: event.end_at,
+            is_all_day: event.is_all_day,
+          });
 
-          setPersonalEvents(updatedEvents);
+          setBackendEvents((current) => [
+            ...current,
+            {
+              ...event,
+              id: `backend-${created.id}`,
+            },
+          ]);
           setSelectedDate(new Date(event.start_at));
           setVisibleMonth(
             new Date(
@@ -397,16 +710,98 @@ const selectedEvents = events
         </Text>
 
         {activeTab === 'Friends' ? (
-          <Text style={styles.emptyMessage}>
-            Friends calendar integration coming soon.
-          </Text>
+          <View style={styles.eventList}>
+            <Text style={styles.eventCount}>SELECT FRIENDS</Text>
+
+            {overlayFriends.length === 0 ? (
+              <Text style={styles.emptyMessage}>No friends added yet.</Text>
+            ) : (
+              overlayFriends.map((friend) => {
+                const selected = selectedFriendIds.includes(friend.id);
+
+                return (
+                  <Pressable
+                    key={friend.id}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: 12,
+                      gap: 12,
+                    }}
+                    onPress={() => {
+                      setSelectedFriendIds((previous) =>
+                        selected
+                          ? previous.filter((id) => id !== friend.id)
+                          : previous.length < 10
+                            ? [...previous, friend.id]
+                            : previous
+                      );
+                    }}
+                  >
+                    <Feather
+                      name={selected ? 'check-square' : 'square'}
+                      size={22}
+                      color={selected ? '#57068C' : '#999999'}
+                    />
+                    <Text style={styles.eventCardTitle}>{friend.name}</Text>
+                  </Pressable>
+                );
+              })
+            )}
+
+            {overlayLoading ? (
+              <ActivityIndicator color="#57068C" />
+            ) : overlayError ? (
+              <Text style={styles.emptyMessage}>{overlayError}</Text>
+            ) : selectedFriendIds.length === 0 ? (
+              <Text style={styles.emptyMessage}>
+                Select friends to view shared schedules.
+              </Text>
+            ) : selectedOverlayItems.length === 0 ? (
+              <Text style={styles.emptyMessage}>
+                No shared events for this date.
+              </Text>
+            ) : (
+              <>
+                <Text style={styles.eventCount}>SHARED SCHEDULES</Text>
+                {selectedOverlayItems.map(({ userId, name, item }, index) => (
+                  <View
+                    key={`${userId}-${item.type}-${item.id ?? index}`}
+                    style={styles.eventCard}
+                  >
+                    <Text style={styles.eventCardTime}>
+                      {item.is_all_day
+                        ? 'All day'
+                        : new Date(item.start_at).toLocaleTimeString(
+                            'en-US',
+                            { hour: 'numeric', minute: '2-digit' }
+                          )}
+                    </Text>
+                    <Text style={styles.eventCardTitle}>
+                      {item.type === 'BUSY' ? 'Busy' : item.title ?? 'Event'}
+                    </Text>
+                    <Text style={styles.eventCardLocation}>{name}</Text>
+                    {item.type !== 'BUSY' && item.location ? (
+                      <Text style={styles.eventCardLocation}>
+                        {item.location}
+                      </Text>
+                    ) : null}
+                  </View>
+                ))}
+              </>
+            )}
+          </View>
         ) : (
           <View style={styles.eventList}>
             {selectedPersonalEvents.length > 0 && (
               <>
                 <Text style={styles.eventCount}>MY EVENTS</Text>
                 {selectedPersonalEvents.map(event => (
-                  <View key={event.id} style={styles.eventCard}>
+                  <Pressable
+                    key={event.id}
+                    style={styles.eventCard}
+                    onPress={() => openPersonalEventActions(event)}
+                  >
                     <Text style={styles.eventCardTime}>
                       {event.is_all_day
                         ? 'All day'
@@ -421,7 +816,7 @@ const selectedEvents = events
                     <Text style={styles.eventCardLocation}>
                       {event.location || 'No location'}
                     </Text>
-                  </View>
+                  </Pressable>
                 ))}
               </>
             )}

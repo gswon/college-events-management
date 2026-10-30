@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 export type PersonalEvent = {
   id: string;
@@ -24,6 +25,7 @@ export type PersonalEvent = {
 
 type Props = {
   selectedDate: Date;
+  initialEvent?: PersonalEvent;
   onCancel: () => void;
   onSave: (event: PersonalEvent) => void;
 };
@@ -39,16 +41,35 @@ function dateText(date: Date) {
 
 export default function AddEventScreen({
   selectedDate,
+  initialEvent,
   onCancel,
   onSave,
 }: Props) {
-  const [title, setTitle] = useState('');
-  const [date, setDate] = useState(new Date(selectedDate));
-  const [allDay, setAllDay] = useState(false);
-  const [startTime, setStartTime] = useState('14:00');
-  const [endTime, setEndTime] = useState('15:00');
-  const [location, setLocation] = useState('');
-  const [notes, setNotes] = useState('');
+  const initialStart = initialEvent
+    ? new Date(initialEvent.start_at)
+    : selectedDate;
+  const initialEnd = initialEvent
+    ? new Date(initialEvent.end_at)
+    : null;
+
+  function hhmm(date: Date) {
+    return String(date.getHours()).padStart(2, '0')
+      + ':'
+      + String(date.getMinutes()).padStart(2, '0');
+  }
+
+  const [title, setTitle] = useState(initialEvent?.title ?? '');
+  const [date, setDate] = useState(new Date(initialStart));
+  const [allDay, setAllDay] = useState(initialEvent?.is_all_day ?? false);
+  const [startTime, setStartTime] = useState(
+    initialEvent ? hhmm(initialStart) : '14:00'
+  );
+  const [endTime, setEndTime] = useState(
+    initialEnd ? hhmm(initialEnd) : '15:00'
+  );
+  const [location, setLocation] = useState(initialEvent?.location ?? '');
+  const [notes, setNotes] = useState(initialEvent?.notes ?? '');
+  const [activeTimePicker, setActiveTimePicker] = useState<'start' | 'end' | null>(null);
 
   function changeDate(offset: number) {
     setDate(previous =>
@@ -103,7 +124,7 @@ export default function AddEventScreen({
     }
 
     onSave({
-      id: `personal-${Date.now()}`,
+      id: initialEvent?.id ?? `personal-${Date.now()}`,
       title: title.trim(),
       start_at: start.toISOString(),
       end_at: end.toISOString(),
@@ -119,7 +140,9 @@ export default function AddEventScreen({
         <Pressable onPress={onCancel}>
           <Text style={styles.cancel}>Cancel</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>Add Event</Text>
+        <Text style={styles.headerTitle}>
+          {initialEvent ? 'Edit Event' : 'Add Event'}
+        </Text>
         <View style={{ width: 48 }} />
       </View>
 
@@ -166,23 +189,31 @@ export default function AddEventScreen({
           <View style={styles.timeRow}>
             <View style={styles.timeBox}>
               <Text style={styles.timeLabel}>Start time (HH:MM)</Text>
-              <TextInput
-                style={styles.timeInput}
-                value={startTime}
-                onChangeText={setStartTime}
-                placeholder="14:00"
-                keyboardType="numbers-and-punctuation"
-              />
+              <Pressable
+                onPress={() => setActiveTimePicker('start')}
+                accessibilityLabel="Select start time"
+              >
+                <Text style={styles.timeInput}>
+                  {new Date(`2000-01-01T${startTime}:00`).toLocaleTimeString(
+                    'en-US',
+                    { hour: 'numeric', minute: '2-digit' }
+                  )}
+                </Text>
+              </Pressable>
             </View>
             <View style={styles.timeBox}>
               <Text style={styles.timeLabel}>End time (HH:MM)</Text>
-              <TextInput
-                style={styles.timeInput}
-                value={endTime}
-                onChangeText={setEndTime}
-                placeholder="15:00"
-                keyboardType="numbers-and-punctuation"
-              />
+              <Pressable
+                onPress={() => setActiveTimePicker('end')}
+                accessibilityLabel="Select end time"
+              >
+                <Text style={styles.timeInput}>
+                  {new Date(`2000-01-01T${endTime}:00`).toLocaleTimeString(
+                    'en-US',
+                    { hour: 'numeric', minute: '2-digit' }
+                  )}
+                </Text>
+              </Pressable>
             </View>
           </View>
         )}
@@ -208,10 +239,52 @@ export default function AddEventScreen({
         />
       </ScrollView>
 
+      {activeTimePicker !== null && (
+        <View style={styles.pickerContainer}>
+          <View style={styles.pickerHeader}>
+            <Text style={styles.pickerTitle}>
+              {activeTimePicker === 'start' ? 'Start time' : 'End time'}
+            </Text>
+            <Pressable onPress={() => setActiveTimePicker(null)}>
+              <Text style={styles.pickerDone}>Done</Text>
+            </Pressable>
+          </View>
+
+          <DateTimePicker
+            value={(() => {
+              const value = activeTimePicker === 'start' ? startTime : endTime;
+              const [hours, minutes] = value.split(':').map(Number);
+              const time = new Date();
+              time.setHours(hours, minutes, 0, 0);
+              return time;
+            })()}
+            mode="time"
+            display="spinner"
+            minuteInterval={5}
+            onValueChange={(_, selectedTime) => {
+              if (!selectedTime) return;
+
+              const value =
+                String(selectedTime.getHours()).padStart(2, '0') +
+                ':' +
+                String(selectedTime.getMinutes()).padStart(2, '0');
+
+              if (activeTimePicker === 'start') {
+                setStartTime(value);
+              } else {
+                setEndTime(value);
+              }
+            }}
+          />
+        </View>
+      )}
+
       <View style={styles.footer}>
         <Text style={styles.privacy}>Only you · Saves to My Calendar</Text>
         <Pressable style={styles.saveButton} onPress={saveEvent}>
-          <Text style={styles.saveText}>Save Event</Text>
+          <Text style={styles.saveText}>
+            {initialEvent ? 'Save Changes' : 'Save Event'}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -278,6 +351,28 @@ const styles = StyleSheet.create({
   timeLabel: { color: '#9999A3', fontSize: 11 },
   timeInput: { color: '#171717', fontSize: 20, fontWeight: '600', marginTop: 6, padding: 0 },
   notesInput: { minHeight: 100 },
+  pickerContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#EEEEF0',
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pickerTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#171717',
+  },
+  pickerDone: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#57068C',
+  },
   footer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12 },
   privacy: { color: '#A0A0A8', textAlign: 'center', fontSize: 12, marginBottom: 12 },
   saveButton: {

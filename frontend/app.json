@@ -1,4 +1,3 @@
-
 {
   "expo": {
     "name": "NYU Event Calendar",
@@ -20,7 +19,8 @@
             "enableSceneSupport": true
           }
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ]
   }
 }

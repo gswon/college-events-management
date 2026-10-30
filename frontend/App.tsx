@@ -1,3 +1,6 @@
+import ProfileScreen from './src/screens/ProfileScreen';
+import { calendarFriendsApi } from './src/services/calendarFriendsApi';
+import FriendsScreen from './src/screens/FriendsScreen';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -105,7 +108,7 @@ function EventCard({ event }: { event: ApiEvent }) {
   );
 }
 
-type Screen = 'Home' | 'Calendar' | 'Profile';
+type Screen = 'Home' | 'Calendar' | 'Profile' | 'Friends';
 
 function BottomNavigation({
   activeScreen,
@@ -125,7 +128,7 @@ function BottomNavigation({
   return (
     <View style={[styles.tabBar, { paddingBottom: Math.max(bottom, 10) }]}>
       {tabs.map(tab => {
-        const selected = tab.label === activeScreen;
+        const selected = tab.label === activeScreen || (tab.label === 'Profile' && activeScreen === 'Friends');
 
         return (
           <Pressable
@@ -133,13 +136,7 @@ function BottomNavigation({
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             style={styles.tab}
-            onPress={() => {
-              if (tab.label === 'Profile') {
-                Alert.alert('Profile', 'Profile screen is coming next.');
-              } else {
-                onChangeScreen(tab.label);
-              }
-            }}
+            onPress={() => onChangeScreen(tab.label)}
           >
             <Feather
               name={tab.icon}
@@ -159,6 +156,24 @@ function BottomNavigation({
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>('Home');
+  const [friendCount, setFriendCount] = useState(0);
+
+  useEffect(() => {
+    if (activeScreen !== 'Profile') return;
+    let active = true;
+
+    calendarFriendsApi.getFriends()
+      .then((friends) => {
+        if (active) setFriendCount(friends.length);
+      })
+      .catch((error) => {
+        console.error('Failed to load friend count:', error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [activeScreen]);
   const [now, setNow] = useState(() => new Date());
   const [events, setEvents] = useState<ApiEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -251,10 +266,17 @@ export default function App() {
   <SafeAreaProvider>
     <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
     <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
-      {activeScreen === 'Calendar' ? (
-        <CalendarScreen />
-      ) : (
-        <ScrollView
+      {activeScreen === 'Friends' ? (
+  <FriendsScreen onBack={() => setActiveScreen('Profile')} />
+) : activeScreen === 'Calendar' ? (
+  <CalendarScreen />
+) : activeScreen === 'Profile' ? (
+  <ProfileScreen
+    onOpenFriends={() => setActiveScreen('Friends')}
+    friendCount={friendCount}
+  />
+) : (
+  <ScrollView
   style={styles.scroll}
   contentContainerStyle={styles.scrollContent}
   onScrollBeginDrag={() => console.log('SCROLL STARTED')}
