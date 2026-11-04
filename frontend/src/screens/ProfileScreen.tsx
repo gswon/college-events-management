@@ -1,240 +1,71 @@
-
 import React from 'react';
-import {
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 type Props = {
   onOpenFriends: () => void;
   friendCount?: number;
 };
 
-export default function ProfileScreen({
-  onOpenFriends,
-  friendCount = 0,
-}: Props) {
-  const settings = [
-    {
-      title: 'Friends',
-      subtitle: `${friendCount} added · Search and add friends`,
-      icon: 'users' as const,
-      onPress: onOpenFriends,
-    },
-    {
-      title: 'Account Settings',
-      subtitle: 'Name, email, and program',
-      icon: 'settings' as const,
-      onPress: () =>
-        Alert.alert('Account Settings', 'Account settings are not connected yet.'),
-    },
-    {
-      title: 'Reset Password',
-      subtitle: 'Update your account password',
-      icon: 'key' as const,
-      onPress: () =>
-        Alert.alert('Reset Password', 'Password reset is not connected yet.'),
-    },
-    {
-      title: 'Notifications',
-      subtitle: 'Push & email',
-      icon: 'bell' as const,
-      onPress: () =>
-        Alert.alert('Notifications', 'Notification settings are not connected yet.'),
-    },
-  ];
-
+/** Updated Figma Profile. Account data needs the team's authentication API. */
+export default function ProfileScreen({ onOpenFriends, friendCount = 0 }: Props) {
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-    >
-      <View style={styles.profileHeader}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>JC</Text>
-        </View>
-
-        <Text style={styles.name}>Joanna Kim</Text>
-        <Text style={styles.university}>New York University</Text>
-        <Text style={styles.program}>BFA · Interactive Media Arts</Text>
-      </View>
-
-      <View style={styles.statsRow}>
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>4</Text>
-          <Text style={styles.statLabel}>Courses</Text>
-        </View>
-
-        <View style={[styles.stat, styles.statBorder]}>
-          <Text style={styles.statValue}>2</Text>
-          <Text style={styles.statLabel}>Shared</Text>
-        </View>
-
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>12</Text>
-          <Text style={styles.statLabel}>Events</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.eyebrow}>Your account</Text>
+      <Text style={styles.heading}>Profile</Text>
+      <View style={styles.identity}>
+        <View style={styles.avatar}><Text style={styles.avatarText}>NYU</Text></View>
+        <View style={styles.identityText}>
+          <Text style={styles.accountName}>Account details unavailable</Text>
+          <Text style={styles.accountEmail}>Connect authentication to display your NYU account</Text>
+          <View style={styles.studentTag}><Text style={styles.studentTagText}>NYU Student</Text></View>
         </View>
       </View>
-
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>ACCOUNT</Text>
+        <View style={styles.settingRow}>
+          <Text style={styles.settingTitle}>Campus</Text>
+          <Text style={styles.settingValue}>Not configured</Text>
+        </View>
+        <Pressable style={styles.settingRow} onPress={onOpenFriends} accessibilityRole="button" accessibilityLabel="Calendar sharing and friends">
+          <Text style={styles.settingTitle}>Calendar sharing</Text>
+          <Text style={styles.settingValue}>{friendCount} friends</Text>
+        </Pressable>
+        <Pressable style={styles.settingRow} onPress={() => Alert.alert('Notifications', 'Notification preferences are not connected yet.')} accessibilityRole="button">
+          <Text style={styles.settingTitle}>Notifications</Text>
+          <Text style={styles.settingValue}>Not configured</Text>
+        </Pressable>
+      </View>
       <Pressable
-        style={styles.importButton}
-        onPress={() =>
-          Alert.alert(
-            'Import Class Schedule',
-            'Class schedule import is not connected yet.'
-          )
-        }
+        style={styles.logoutButton}
+        accessibilityRole="button"
+        onPress={() => Alert.alert('Log Out unavailable', 'The backend does not yet provide a login or logout session. No user session was changed.')}
       >
-        <Feather name="upload" size={17} color="#171717" />
-        <Text style={styles.importText}>Import Class Schedule</Text>
+        <Text style={styles.logoutText}>Log Out</Text>
       </Pressable>
-
-      <View style={styles.settingsList}>
-        {settings.map(item => (
-          <Pressable
-            key={item.title}
-            style={styles.settingsRow}
-            onPress={item.onPress}
-          >
-            <View style={styles.settingsIcon}>
-              <Feather name={item.icon} size={17} color="#555555" />
-            </View>
-
-            <View style={styles.settingsText}>
-              <Text style={styles.settingsTitle}>{item.title}</Text>
-              <Text style={styles.settingsSubtitle}>
-                {item.subtitle}
-              </Text>
-            </View>
-
-            <Feather name="chevron-right" size={21} color="#C6C6C8" />
-          </Pressable>
-        ))}
-      </View>
+      <Text style={styles.footer}>NYU Events · Prototype</Text>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 28,
-    paddingBottom: 36,
-  },
-  profileHeader: {
-    alignItems: 'center',
-    marginTop: 16,
-    marginBottom: 24,
-  },
-  avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#111111',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 17,
-  },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  name: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#171717',
-  },
-  university: {
-    fontSize: 13,
-    color: '#798194',
-    marginTop: 6,
-  },
-  program: {
-    fontSize: 11,
-    color: '#9BA3B2',
-    marginTop: 6,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#F3F3F4',
-    paddingTop: 17,
-    marginBottom: 22,
-  },
-  stat: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statBorder: {
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: '#F4F4F5',
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#171717',
-  },
-  statLabel: {
-    fontSize: 10,
-    color: '#A0A8B8',
-    marginTop: 4,
-  },
-  importButton: {
-    height: 48,
-    borderWidth: 1,
-    borderColor: '#E7E7EA',
-    borderRadius: 13,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 9,
-  },
-  importText: {
-    color: '#252525',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  settingsList: {
-    marginTop: 24,
-  },
-  settingsRow: {
-    minHeight: 67,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F3F4',
-    gap: 13,
-  },
-  settingsIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: '#F5F5F5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  settingsText: {
-    flex: 1,
-    gap: 4,
-  },
-  settingsTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#202020',
-  },
-  settingsSubtitle: {
-    fontSize: 11,
-    color: '#9AA3B4',
-  },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  content: { paddingHorizontal: 24, paddingTop: 30, paddingBottom: 60 },
+  eyebrow: { color: '#9398A1', fontSize: 12, marginBottom: 7 },
+  heading: { fontSize: 28, fontWeight: '700', color: '#1A1A1A', marginBottom: 30 },
+  identity: { borderTopWidth: 1, borderTopColor: '#F0F0F0', paddingVertical: 27, flexDirection: 'row', alignItems: 'center', gap: 16, borderBottomWidth: 1, borderBottomColor: '#E5E5E7' },
+  avatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#212123', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: '#FFF', fontSize: 13, fontWeight: '600' },
+  identityText: { flex: 1, gap: 5 },
+  accountName: { fontSize: 16, fontWeight: '700', color: '#191919' },
+  accountEmail: { fontSize: 11, lineHeight: 16, color: '#9C9FA7' },
+  studentTag: { alignSelf: 'flex-start', marginTop: 6, borderRadius: 4, borderWidth: 1, borderColor: '#E4E4E7', paddingVertical: 3, paddingHorizontal: 8 },
+  studentTagText: { fontSize: 10, color: '#888B93' },
+  section: { marginTop: 28 },
+  sectionLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1.3, color: '#969BA5', marginBottom: 14 },
+  settingRow: { borderTopWidth: 1, borderTopColor: '#E7E7E9', paddingVertical: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  settingTitle: { color: '#292929', fontSize: 13 },
+  settingValue: { color: '#979AA1', fontSize: 11 },
+  logoutButton: { marginTop: 26, height: 45, borderRadius: 8, borderWidth: 1, borderColor: '#E7E7E9', alignItems: 'center', justifyContent: 'center' },
+  logoutText: { color: '#A8464C', fontSize: 12, fontWeight: '600' },
+  footer: { textAlign: 'center', color: '#D0D0D3', marginTop: 17, fontSize: 10 },
 });

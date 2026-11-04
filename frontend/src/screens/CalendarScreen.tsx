@@ -3,6 +3,8 @@ import {
   savePersonalEvent,
 } from '../services/personalEvents';
 import AddEventScreen, { type PersonalEvent } from './AddEventScreen';
+import AddFriendsSheet from './AddFriendsSheet';
+import FriendProfileSheet from './FriendProfileSheet';
 import { useEffect, useState } from 'react';
 
 import {
@@ -93,6 +95,8 @@ export default function CalendarScreen({
   );
 
   const [showAddEvent, setShowAddEvent] = useState(false);
+  const [showAddFriends, setShowAddFriends] = useState(false);
+  const [profileFriend, setProfileFriend] = useState<{ id: number; name: string } | null>(null);
   const [editingEvent, setEditingEvent] = useState<PersonalEvent | null>(null);
   const [personalEvents, setPersonalEvents] = useState<PersonalEvent[]>([]);
   const [overlayFriends, setOverlayFriends] = useState<
@@ -594,6 +598,7 @@ const selectedEvents = events
 }
 
   return (
+    <>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -797,7 +802,7 @@ const selectedEvents = events
             </Text>
 
             <Pressable
-              onPress={onOpenFriends}
+              onPress={() => setShowAddFriends(true)}
               style={{
                 borderWidth: 1,
                 borderColor: '#E6E6E9',
@@ -813,9 +818,15 @@ const selectedEvents = events
             </Pressable>
           </View>
         ) : (
-          <Text style={styles.selectedDateTitle}>
-            {formatSelectedDate(selectedDate)}
-          </Text>
+          <View style={styles.myScheduleTitleRow}>
+            <Text style={[styles.selectedDateTitle, { flexShrink: 1 }]}>
+              {formatSelectedDate(selectedDate)}
+            </Text>
+            <Text style={styles.myScheduleCount}>
+              {selectedPersonalEvents.length + selectedEvents.length}{' '}
+              {selectedPersonalEvents.length + selectedEvents.length === 1 ? 'event' : 'events'}
+            </Text>
+          </View>
         )}
 
         {activeTab === 'Friends' ? (
@@ -890,9 +901,11 @@ const selectedEvents = events
                               : previous
                         );
                       }}
+                      onLongPress={() => setProfileFriend(friend)}
+                      accessibilityHint="Tap to show or hide the calendar; long press for friend management"
                       style={{
                         alignItems: 'center',
-                        width: 51,
+                        width: 68,
                       }}
                     >
                       <View
@@ -929,6 +942,21 @@ const selectedEvents = events
                       >
                         {displayName}
                       </Text>
+                      <View
+                        style={{
+                          borderWidth: 1,
+                          borderColor: '#E5E5E8',
+                          backgroundColor: selected ? '#F7F7F8' : '#FFFFFF',
+                          borderRadius: 5,
+                          marginTop: 8,
+                          paddingVertical: 4,
+                          paddingHorizontal: 5,
+                        }}
+                      >
+                        <Text style={{ color: selected ? '#777780' : '#A4A4AD', fontSize: 9 }}>
+                          {selected ? '✓ Viewing' : '+ View'}
+                        </Text>
+                      </View>
                     </Pressable>
                   );
                 })}
@@ -1178,6 +1206,24 @@ const selectedEvents = events
         )}
       </View>
     </ScrollView>
+    <AddFriendsSheet visible={showAddFriends} onClose={() => setShowAddFriends(false)} />
+    <FriendProfileSheet
+      friend={profileFriend}
+      calendarVisible={profileFriend !== null && selectedFriendIds.includes(profileFriend.id)}
+      onClose={() => setProfileFriend(null)}
+      onToggleCalendar={(visible) => {
+        if (!profileFriend) return;
+        const friendId = profileFriend.id;
+        setSelectedFriendIds(previous => visible
+          ? (previous.includes(friendId) || previous.length >= 10 ? previous : [...previous, friendId])
+          : previous.filter(id => id !== friendId));
+      }}
+      onRemoved={(friendId) => {
+        setOverlayFriends(previous => previous.filter(friend => friend.id !== friendId));
+        setSelectedFriendIds(previous => previous.filter(id => id !== friendId));
+      }}
+    />
+    </>
   );
 }
 
@@ -1222,7 +1268,7 @@ addButtonText: {
   },
   tabs: {
     flexDirection: 'row',
-    marginTop: 42,
+    marginTop: 38,
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
   },
@@ -1270,7 +1316,7 @@ addButtonText: {
   },
   dayCell: {
     width: '14.2857%',
-    height: 52,
+    height: 49,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1296,8 +1342,8 @@ addButtonText: {
     color: '#FFFFFF',
   },
   scheduleSection: {
-    marginTop: 40,
-    paddingTop: 28,
+    marginTop: 33,
+    paddingTop: 26,
     borderTopWidth: 1,
     borderTopColor: '#EEEEEE',
   },
@@ -1311,6 +1357,17 @@ addButtonText: {
     fontSize: 22,
     fontWeight: '700',
     color: '#1C1C1E',
+    marginTop: 10,
+  },
+  myScheduleTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  myScheduleCount: {
+    fontSize: 11,
+    color: '#9B9BA5',
     marginTop: 10,
   },
   emptyMessage: {

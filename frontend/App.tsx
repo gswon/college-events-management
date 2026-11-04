@@ -18,6 +18,7 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-
 import { CampusEvent } from './src/data/events';
 import { createApi } from './src/services/api';
 import CalendarScreen from './src/screens/CalendarScreen';
+import AuthScreen from './src/screens/AuthScreen';
 
 // Keep the same API configuration you were using previously.
 const api = createApi('http://127.0.0.1:8000', () => undefined);
@@ -171,7 +172,7 @@ function BottomNavigation({
   );
 }
 
-export default function App() {
+function MainApp() {
   const [activeScreen, setActiveScreen] = useState<Screen>('Home');
   const [friendCount, setFriendCount] = useState(0);
 
@@ -316,7 +317,6 @@ export default function App() {
   <ScrollView
   style={styles.scroll}
   contentContainerStyle={styles.scrollContent}
-  onScrollBeginDrag={() => console.log('SCROLL STARTED')}
   refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadEvents('refresh')} />}
 >
           <View style={styles.topHeader}>
@@ -406,17 +406,17 @@ export default function App() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#FFFFFF' },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 36 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 56 },
   topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   greetingWrap: { flex: 1, paddingRight: 8 },
   topDate: { fontSize: 15, lineHeight: 22, color: '#9797A0', fontWeight: '500' },
-  greeting: { fontSize: 29, lineHeight: 36, color: '#1C1C1E', fontWeight: '700', marginTop: 12, letterSpacing: -0.8 },
+  greeting: { fontSize: 27, lineHeight: 34, color: '#1C1C1E', fontWeight: '700', marginTop: 10, letterSpacing: -0.8 },
   avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#171717', alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
-  sectionHeader: { marginTop: 52, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 },
+  sectionHeader: { marginTop: 46, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 },
   sectionHeading: { flexShrink: 1 },
   eyebrow: { color: '#92929D', fontSize: 11, fontWeight: '700', letterSpacing: 1.7, marginBottom: 8 },
-  sectionTitle: { color: '#171717', fontSize: 27, lineHeight: 34, fontWeight: '700', letterSpacing: -0.9 },
+  sectionTitle: { color: '#171717', fontSize: 25, lineHeight: 32, fontWeight: '700', letterSpacing: -0.9 },
   filterButton: { minWidth: 113, paddingHorizontal: 12, height: 40, borderWidth: 1, borderColor: '#E1E1E6', borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   filterButtonText: { fontSize: 12, color: '#3B3B40', fontWeight: '500', flexShrink: 1 },
   filterList: { borderWidth: 1, borderColor: '#E7E7EB', borderRadius: 10, marginTop: 12, overflow: 'hidden' },
@@ -450,3 +450,15 @@ const styles = StyleSheet.create({
   loadMoreButton: { alignItems: 'center', padding: 16, marginTop: 14 },
   loadMoreText: { color: '#57068C', fontSize: 14, fontWeight: '600' },
 });
+
+
+// Design review only. Toggle to true temporarily to preview the supplied
+// Log In / Sign Up Figma screens. This does not authenticate or create sessions.
+// Leave false for the existing Home / Calendar / Friends app and backend flows.
+const SHOW_AUTH_DESIGN_PREVIEW = false;
+
+export default function App() {
+  return SHOW_AUTH_DESIGN_PREVIEW ? (
+    <SafeAreaProvider><AuthScreen /></SafeAreaProvider>
+  ) : <MainApp />;
+}
