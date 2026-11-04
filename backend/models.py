@@ -15,8 +15,11 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True)
+    # Supabase 유저 UUID (migrations/001). 첫 로그인 때 채워진다.
+    auth_uid: Mapped[Optional[str]] = mapped_column(CHAR(36), unique=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
+    # Google 로그인만 쓰므로 비밀번호는 없다. Supabase 이전에 만든 행에만 값이 남아 있다.
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255))
     display_name: Mapped[str] = mapped_column(String(50))
     profile_image_url: Mapped[Optional[str]] = mapped_column(String(500))
     role: Mapped[str] = mapped_column(Enum("USER", "ADMIN"), default="USER")

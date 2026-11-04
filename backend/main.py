@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from errors import register_error_handlers
-from routers import calendar, categories, entries, events, friends
+from routers import account, calendar, categories, entries, events, friends
 
 API_PREFIX = "/api/v1"
 
@@ -13,6 +13,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 register_error_handlers(app)
 
+app.include_router(account.router, prefix=API_PREFIX)
 app.include_router(events.router, prefix=API_PREFIX)
 app.include_router(categories.router, prefix=API_PREFIX)
 app.include_router(entries.router, prefix=API_PREFIX)

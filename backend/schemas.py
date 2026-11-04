@@ -202,3 +202,31 @@ class FriendRequestOut(ORMModel):
     to_user: UserBrief
     status: Literal["PENDING", "ACCEPTED", "DECLINED", "CANCELLED"]
     created_at: UTCDateTime
+
+
+# --- 인증 (/auth) ----------------------------------------------------------
+
+class GoogleLoginIn(BaseModel):
+    id_token: Annotated[str, StringConstraints(min_length=1)]  # 앱의 Google 로그인이 준 ID 토큰
+    nonce: Optional[str] = None  # ID 토큰을 받을 때 nonce를 썼다면 그 원문(해시 전)
+
+
+class RefreshIn(BaseModel):
+    refresh_token: Annotated[str, StringConstraints(min_length=1)]
+
+
+class MeOut(ORMModel):
+    id: int
+    email: str
+    display_name: str
+    profile_image_url: Optional[str]
+
+
+class AuthSession(BaseModel):
+    """앱은 두 토큰을 SecureStore에 저장하고, API 호출 때 Authorization: Bearer <access_token>."""
+
+    access_token: str
+    refresh_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int  # access_token 유효 시간(초)
+    user: MeOut

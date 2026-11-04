@@ -5,6 +5,9 @@ pydantic==2.13.5
 SQLAlchemy==2.1.1
 PyMySQL==1.2.3
 python-dotenv==1.2.3
+# Supabase access token(JWT) 검증. Supabase Auth 호출은 httpx로 한다.
+PyJWT[crypto]==2.15.1
+httpx==0.28.1
 
 # 테스트
 pytest==9.1.1
