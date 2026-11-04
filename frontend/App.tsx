@@ -269,7 +269,7 @@ export default function App() {
       {activeScreen === 'Friends' ? (
   <FriendsScreen onBack={() => setActiveScreen('Profile')} />
 ) : activeScreen === 'Calendar' ? (
-  <CalendarScreen />
+  <CalendarScreen onOpenFriends={() => setActiveScreen('Friends')} />
 ) : activeScreen === 'Profile' ? (
   <ProfileScreen
     onOpenFriends={() => setActiveScreen('Friends')}

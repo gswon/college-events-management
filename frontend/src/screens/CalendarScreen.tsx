@@ -75,7 +75,13 @@ function formatSelectedDate(date: Date) {
   });
 }
 
-export default function CalendarScreen() {
+type CalendarScreenProps = {
+  onOpenFriends: () => void;
+};
+
+export default function CalendarScreen({
+  onOpenFriends,
+}: CalendarScreenProps) {
   const [selectedDate, setSelectedDate] = useState(new Date());
 
   const [visibleMonth, setVisibleMonth] = useState(
@@ -333,15 +339,22 @@ const selectedEvents = events
 
         const selected = new Set(selectedFriendIds);
         const combined = calendars
-          .filter((calendar) => selected.has(calendar.user_id))
+          .filter(
+            (calendar) =>
+              calendar.user_id === 1 ||
+              selected.has(calendar.user_id)
+          )
           .flatMap((calendar) => {
+            const isMine = calendar.user_id === 1;
             const friend = overlayFriends.find(
               (item) => item.id === calendar.user_id
             );
 
             return calendar.items.map((item) => ({
               userId: calendar.user_id,
-              name: friend?.name ?? `User ${calendar.user_id}`,
+              name: isMine
+                ? 'My calendar'
+                : friend?.name ?? `User ${calendar.user_id}`,
               item,
             }));
           });
@@ -682,15 +695,78 @@ const selectedEvents = events
                 >
                   {day}
                 </Text>
-                {(events.some(event => {
-                  const date = getEventDate(event);
-                  return date !== null &&
-                    isSameDay(date, new Date(year, month, day));
-                }) || hasPersonalEvent(day)) && (
-                  <View style={[
-                    styles.eventDot,
-                    selected && styles.selectedEventDot,
-                  ]} />
+                {activeTab === 'Friends' ? (
+                  selectedFriendIds.length > 0 && (
+                    <View
+                      style={{
+                        position: 'absolute',
+                        bottom: 5,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 3,
+                      }}
+                    >
+                      {Array.from(
+                        new Set(
+                          overlayItems
+                            .filter(({ item }) => {
+                              const dayStart = new Date(year, month, day);
+                              const dayEnd = new Date(year, month, day + 1);
+
+                              return (
+                                new Date(item.start_at) < dayEnd &&
+                                new Date(item.end_at) > dayStart
+                              );
+                            })
+                            .map(({ userId }) => userId)
+                        )
+                      )
+                        .sort((a, b) => a - b)
+                        .slice(0, 3)
+                        .map((userId) => {
+                          const friendIndex = overlayFriends.findIndex(
+                            (friend) => friend.id === userId
+                          );
+                          const friendColors = [
+                            '#9BC9DE',
+                            '#CB927A',
+                            '#D0D0D4',
+                          ];
+
+                          const dotColor = selected
+                            ? '#FFFFFF'
+                            : userId === 1
+                              ? '#1C1C1E'
+                              : friendColors[
+                                  Math.max(friendIndex, 0) %
+                                    friendColors.length
+                                ];
+
+                          return (
+                            <View
+                              key={userId}
+                              style={{
+                                width: 4,
+                                height: 4,
+                                borderRadius: 2,
+                                backgroundColor: dotColor,
+                              }}
+                            />
+                          );
+                        })}
+                    </View>
+                  )
+                ) : (
+                  (events.some(event => {
+                    const date = getEventDate(event);
+                    return date !== null &&
+                      isSameDay(date, new Date(year, month, day));
+                  }) || hasPersonalEvent(day)) && (
+                    <View style={[
+                      styles.eventDot,
+                      selected && styles.selectedEventDot,
+                    ]} />
+                  )
                 )}
               </View>
             </Pressable>
@@ -703,50 +779,160 @@ const selectedEvents = events
           {activeTab === 'My Calendar' ? 'YOUR SCHEDULE' : 'PLAN TOGETHER'}
         </Text>
 
-        <Text style={styles.selectedDateTitle}>
-          {activeTab === 'My Calendar'
-            ? formatSelectedDate(selectedDate)
-            : "Friends' Schedules"}
-        </Text>
+        {activeTab === 'Friends' ? (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Text
+              style={[
+                styles.selectedDateTitle,
+                { flexShrink: 1, marginTop: 10, fontSize: 18 },
+              ]}
+            >
+              Friends’ Schedules
+            </Text>
+
+            <Pressable
+              onPress={onOpenFriends}
+              style={{
+                borderWidth: 1,
+                borderColor: '#E6E6E9',
+                borderRadius: 7,
+                paddingHorizontal: 13,
+                paddingVertical: 9,
+                marginLeft: 10,
+              }}
+            >
+              <Text style={{ fontSize: 12, color: '#242424' }}>
+                + Add Friends
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Text style={styles.selectedDateTitle}>
+            {formatSelectedDate(selectedDate)}
+          </Text>
+        )}
 
         {activeTab === 'Friends' ? (
           <View style={styles.eventList}>
-            <Text style={styles.eventCount}>SELECT FRIENDS</Text>
+            <Text
+              style={{
+                fontSize: 12,
+                color: '#9B9BA6',
+                marginBottom: 20,
+              }}
+            >
+              Choose friends to compare schedules with your own.
+            </Text>
 
             {overlayFriends.length === 0 ? (
-              <Text style={styles.emptyMessage}>No friends added yet.</Text>
+              <Text style={styles.emptyMessage}>
+                No friends added yet.
+              </Text>
             ) : (
-              overlayFriends.map((friend) => {
-                const selected = selectedFriendIds.includes(friend.id);
+              <View
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  gap: 18,
+                  marginBottom: 22,
+                }}
+              >
+                {overlayFriends.map((friend, friendIndex) => {
+                  const selected = selectedFriendIds.includes(friend.id);
 
-                return (
-                  <Pressable
-                    key={friend.id}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingVertical: 12,
-                      gap: 12,
-                    }}
-                    onPress={() => {
-                      setSelectedFriendIds((previous) =>
-                        selected
-                          ? previous.filter((id) => id !== friend.id)
-                          : previous.length < 10
-                            ? [...previous, friend.id]
-                            : previous
-                      );
-                    }}
-                  >
-                    <Feather
-                      name={selected ? 'check-square' : 'square'}
-                      size={22}
-                      color={selected ? '#57068C' : '#999999'}
-                    />
-                    <Text style={styles.eventCardTitle}>{friend.name}</Text>
-                  </Pressable>
-                );
-              })
+                  const avatarColors = [
+                    { border: '#9BC9DE', background: '#F2F8FB', text: '#537D95' },
+                    { border: '#CB927A', background: '#FFF7F3', text: '#A97158' },
+                    { border: '#D0D0D4', background: '#F1F1F2', text: '#9999A2' },
+                  ];
+
+                  const avatarColor =
+                    avatarColors[friendIndex % avatarColors.length];
+
+                  const firstName = friend.name.trim().split(/\s+/)[0];
+
+                  const duplicateFirstName = overlayFriends.some(
+                    (other) =>
+                      other.id !== friend.id &&
+                      other.name.trim().split(/\s+/)[0] === firstName
+                  );
+
+                  const displayName = duplicateFirstName
+                    ? friend.name.trim().split(/\s+/).slice(-1)[0]
+                    : firstName;
+
+                  const initials = friend.name
+                    .trim()
+                    .split(/\s+/)
+                    .slice(0, 2)
+                    .map((part) => part.charAt(0))
+                    .join('')
+                    .toUpperCase();
+
+                  return (
+                    <Pressable
+                      key={friend.id}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{checked: selected}}
+                      accessibilityLabel={friend.name}
+                      onPress={() => {
+                        setSelectedFriendIds((previous) =>
+                          previous.includes(friend.id)
+                            ? previous.filter((id) => id !== friend.id)
+                            : previous.length < 10
+                              ? [...previous, friend.id]
+                              : previous
+                        );
+                      }}
+                      style={{
+                        alignItems: 'center',
+                        width: 51,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 43,
+                          height: 43,
+                          borderRadius: 22,
+                          borderWidth: selected ? 1 : 0,
+                          borderColor: avatarColor.border,
+                          backgroundColor: selected
+                            ? avatarColor.background
+                            : '#F1F1F2',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            color: selected ? avatarColor.text : '#9999A2',
+                          }}
+                        >
+                          {initials}
+                        </Text>
+                      </View>
+
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          marginTop: 7,
+                          fontSize: 10,
+                          color: '#8F8F98',
+                        }}
+                      >
+                        {displayName}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             )}
 
             {overlayLoading ? (
@@ -763,31 +949,170 @@ const selectedEvents = events
               </Text>
             ) : (
               <>
-                <Text style={styles.eventCount}>SHARED SCHEDULES</Text>
-                {selectedOverlayItems.map(({ userId, name, item }, index) => (
+                <View
+                  style={{
+                    marginTop: 10,
+                    paddingTop: 26,
+                    borderTopWidth: 1,
+                    borderTopColor: '#EEEEEE',
+                  }}
+                >
+                  <Text style={styles.sectionLabel}>
+                    SHARED SCHEDULE
+                  </Text>
+
                   <View
-                    key={`${userId}-${item.type}-${item.id ?? index}`}
-                    style={styles.eventCard}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginTop: 12,
+                      marginBottom: 22,
+                    }}
                   >
-                    <Text style={styles.eventCardTime}>
-                      {item.is_all_day
-                        ? 'All day'
-                        : new Date(item.start_at).toLocaleTimeString(
-                            'en-US',
-                            { hour: 'numeric', minute: '2-digit' }
-                          )}
+                    <Text
+                      style={{
+                        fontSize: 19,
+                        fontWeight: '700',
+                        color: '#1C1C1E',
+                      }}
+                    >
+                      {formatSelectedDate(selectedDate)}
                     </Text>
-                    <Text style={styles.eventCardTitle}>
-                      {item.type === 'BUSY' ? 'Busy' : item.title ?? 'Event'}
+
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        color: '#9999A3',
+                      }}
+                    >
+                      {selectedOverlayItems.length}{' '}
+                      {selectedOverlayItems.length === 1
+                        ? 'event'
+                        : 'events'}
                     </Text>
-                    <Text style={styles.eventCardLocation}>{name}</Text>
-                    {item.type !== 'BUSY' && item.location ? (
-                      <Text style={styles.eventCardLocation}>
-                        {item.location}
-                      </Text>
-                    ) : null}
                   </View>
-                ))}
+
+                  {selectedOverlayItems.map(
+                    ({ userId, name, item }, index) => {
+                      const isBusy = item.type === 'BUSY';
+                      const initials = name
+                        .trim()
+                        .split(/\s+/)
+                        .slice(0, 2)
+                        .map((part) => part.charAt(0))
+                        .join('')
+                        .toUpperCase();
+
+                      const timeOptions = {
+                        hour: 'numeric' as const,
+                        minute: '2-digit' as const,
+                      };
+
+                      const timeLabel = item.is_all_day
+                        ? 'All day'
+                        : `${new Date(item.start_at).toLocaleTimeString(
+                            'en-US',
+                            timeOptions
+                          )}–${new Date(item.end_at).toLocaleTimeString(
+                            'en-US',
+                            timeOptions
+                          )}`;
+
+                      return (
+                        <View
+                          key={`${userId}-${item.type}-${item.id ?? index}`}
+                          style={{
+                            borderTopWidth: index === 0 ? 1 : 0,
+                            borderBottomWidth: 1,
+                            borderColor: '#EEEEEE',
+                            paddingTop: 18,
+                            paddingBottom: 18,
+                          }}
+                        >
+                          <View
+                            style={{
+                              borderLeftWidth: 3,
+                              borderLeftColor: '#E8E8E8',
+                              paddingLeft: 12,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: '#8F8F98',
+                                fontSize: 11,
+                                marginBottom: 8,
+                              }}
+                            >
+                              {timeLabel}
+                            </Text>
+
+                            <Text
+                              style={{
+                                color: '#171717',
+                                fontSize: 15,
+                                fontWeight: '600',
+                              }}
+                            >
+                              {isBusy ? 'Busy' : item.title ?? 'Event'}
+                            </Text>
+
+                            {!isBusy && item.location ? (
+                              <Text
+                                style={{
+                                  color: '#9C9CA6',
+                                  fontSize: 12,
+                                  marginTop: 6,
+                                }}
+                              >
+                                {item.location}
+                              </Text>
+                            ) : null}
+
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                marginTop: 14,
+                                gap: 9,
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 22,
+                                  height: 22,
+                                  borderRadius: 11,
+                                  backgroundColor: '#F1F1F2',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 8,
+                                    color: '#92929D',
+                                  }}
+                                >
+                                  {initials}
+                                </Text>
+                              </View>
+
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: '#9999A3',
+                                }}
+                              >
+                                {name}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    }
+                  )}
+                </View>
+
               </>
             )}
           </View>

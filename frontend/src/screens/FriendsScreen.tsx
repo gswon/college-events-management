@@ -188,23 +188,33 @@ export default function FriendsScreen({ onBack }: Props) {
 
         <Text style={styles.headerTitle}>Friends</Text>
 
-        <Pressable
-          onPress={() => {
-            setLoading(true);
-            void loadData();
-          }}
-          accessibilityLabel="Refresh friends"
-        >
-          <Feather name="refresh-cw" size={20} color="#191919" />
-        </Pressable>
+        <View style={{ width: 35 }} />
       </View>
 
-      <Text style={styles.subtitle}>
-        Connect with friends and share your schedule.
+      <Text
+        style={{
+          marginTop: 28,
+          marginBottom: 10,
+          fontSize: 11,
+          fontWeight: '600',
+          color: '#97A0B1',
+          letterSpacing: 1,
+        }}
+      >
+        SEARCH FRIENDS
       </Text>
 
       <Pressable
-        style={styles.searchBox}
+        style={[
+          styles.searchBox,
+          {
+            marginTop: 0,
+            height: 44,
+            borderRadius: 12,
+            borderColor: '#ECECEF',
+            paddingHorizontal: 13,
+          },
+        ]}
         onPress={() =>
           Alert.alert(
             'Search unavailable',
@@ -212,9 +222,13 @@ export default function FriendsScreen({ onBack }: Props) {
           )
         }
       >
-        <Feather name="search" size={19} color="#999999" />
-        <Text style={styles.searchPlaceholder}>
-          Search and add friends
+        <Text
+          style={[
+            styles.searchPlaceholder,
+            {fontSize: 12, color: '#B7B7BC'},
+          ]}
+        >
+          Search by name
         </Text>
       </Pressable>
 
@@ -334,7 +348,7 @@ export default function FriendsScreen({ onBack }: Props) {
           )}
 
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>MY FRIENDS</Text>
+            <Text style={styles.sectionTitle}>ADDED FRIENDS</Text>
             <Text style={styles.count}>{friends.length}</Text>
           </View>
 
