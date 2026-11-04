@@ -60,9 +60,26 @@ function greeting(date: Date) {
 }
 
 function getCategory(event: ApiEvent): Exclude<Filter, 'All Events'> {
-  const raw = String(event.category ?? '').toLowerCase();
+  const raw = String(event.category ?? '').toUpperCase();
+
+  // Prefer the category assigned by the Backend.
+  const backendCategories: Record<string, Exclude<Filter, 'All Events'>> = {
+    CAREER: 'Career',
+    SOCIAL: 'Social',
+    ACADEMIC: 'Academic',
+    SPORTS: 'Athletics',
+    OTHER: 'Other',
+    ARTS: 'Other',
+    WELLNESS: 'Other',
+  };
+
+  if (backendCategories[raw]) {
+    return backendCategories[raw];
+  }
+
+  // Fallback for older event data without a recognized category code.
   const title = event.title.toLowerCase();
-  const value = `${raw} ${title}`;
+  const value = `${raw.toLowerCase()} ${title}`;
   if (/career|job|recruit|intern|networking|employ/.test(value)) return 'Career';
   if (/sport|athlet|soccer|basketball|volleyball|tennis|game vs|match/.test(value)) return 'Athletics';
   if (/academic|lecture|research|seminar|workshop|faculty|study|science|ai guest/.test(value)) return 'Academic';
@@ -195,6 +212,11 @@ export default function App() {
     setRefreshing(mode === 'refresh');
     setLoadingMore(mode === 'more');
 
+    if (mode === 'initial') {
+      setEvents([]);
+      setNextCursor(null);
+    }
+
     if (mode !== 'more') {
       const start = dayStart(new Date());
       const end = new Date(start.getTime() + 31 * 86400000);
@@ -204,12 +226,27 @@ export default function App() {
     const currentRange = range.current!;
     const timeout = setTimeout(() => controller.abort(), 15000);
     try {
+      const backendCategory: Record<string, string> = {
+        Career: 'CAREER',
+        Social: 'SOCIAL',
+        Academic: 'ACADEMIC',
+        Athletics: 'SPORTS',
+      };
+
+      // "Other" includes several backend categories, so keep
+      // client-side filtering for that option for now.
+      const categoryCode = backendCategory[filter];
+
       const page = await api.events(
         currentRange.start,
         currentRange.end,
         mode === 'more' ? nextCursor ?? undefined : undefined,
         controller.signal,
+        categoryCode,
       );
+
+      if (activeRequest.current !== controller) return;
+
       const incoming = page.items as ApiEvent[];
       setEvents(previous => {
         if (mode !== 'more') return incoming;
@@ -241,7 +278,7 @@ export default function App() {
       activeRequest.current = null;
       controller?.abort();
     };
-  }, []);
+  }, [filter]);
 
   const from = dayStart(now).getTime();
   const until = from + 31 * 86400000;
