@@ -1,4 +1,5 @@
 import ProfileScreen from './src/screens/ProfileScreen';
+import AccountSettingsScreen from './src/screens/AccountSettingsScreen';
 import { calendarFriendsApi } from './src/services/calendarFriendsApi';
 import FriendsScreen from './src/screens/FriendsScreen';
 import { useEffect, useRef, useState } from 'react';
@@ -126,7 +127,7 @@ function EventCard({ event }: { event: ApiEvent }) {
   );
 }
 
-type Screen = 'Home' | 'Calendar' | 'Profile' | 'Friends';
+type Screen = 'Home' | 'Calendar' | 'Profile' | 'Friends' | 'Settings';
 
 function BottomNavigation({
   activeScreen,
@@ -146,7 +147,7 @@ function BottomNavigation({
   return (
     <View style={[styles.tabBar, { paddingBottom: Math.max(bottom, 10) }]}>
       {tabs.map(tab => {
-        const selected = tab.label === activeScreen || (tab.label === 'Profile' && activeScreen === 'Friends');
+        const selected = tab.label === activeScreen || (tab.label === 'Profile' && (activeScreen === 'Friends' || activeScreen === 'Settings'));
 
         return (
           <Pressable
@@ -164,7 +165,6 @@ function BottomNavigation({
             <Text style={[styles.tabText, selected && styles.selectedTabText]}>
               {tab.label}
             </Text>
-            <View style={[styles.tabDot, selected && styles.selectedTabDot]} />
           </Pressable>
         );
       })}
@@ -304,12 +304,15 @@ function MainApp() {
   <SafeAreaProvider>
     <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
     <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
-      {activeScreen === 'Friends' ? (
+      {activeScreen === 'Settings' ? (
+  <AccountSettingsScreen onBack={() => setActiveScreen('Profile')} />
+) : activeScreen === 'Friends' ? (
   <FriendsScreen onBack={() => setActiveScreen('Profile')} />
 ) : activeScreen === 'Calendar' ? (
   <CalendarScreen onOpenFriends={() => setActiveScreen('Friends')} />
 ) : activeScreen === 'Profile' ? (
   <ProfileScreen
+    onOpenAccountSettings={() => setActiveScreen('Settings')}
     onOpenFriends={() => setActiveScreen('Friends')}
     friendCount={friendCount}
   />
@@ -439,8 +442,6 @@ const styles = StyleSheet.create({
   tab: { flex: 1, alignItems: 'center', gap: 6, paddingVertical: 4 },
   tabText: { fontSize: 12, color: '#9D9DA4' },
   selectedTabText: { color: '#1C1C1E', fontWeight: '600' },
-  tabDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: 'transparent', marginTop: 1 },
-  selectedTabDot: { backgroundColor: '#702099' },
   message: { alignItems: 'center', paddingVertical: 30, gap: 12 },
   messageText: { color: '#888891', fontSize: 13 },
   error: { color: '#B42318', textAlign: 'center', fontSize: 13 },

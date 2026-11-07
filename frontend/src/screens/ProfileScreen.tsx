@@ -1,25 +1,39 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { loadLocalProfile, type LocalProfile } from '../services/localProfile';
 
 type Props = {
   onOpenFriends: () => void;
+  onOpenAccountSettings: () => void;
   friendCount?: number;
 };
 
 /** Updated Figma Profile. Account data needs the team's authentication API. */
-export default function ProfileScreen({ onOpenFriends, friendCount = 0 }: Props) {
+export default function ProfileScreen({ onOpenFriends, onOpenAccountSettings, friendCount = 0 }: Props) {
+  const [localProfile, setLocalProfile] = useState<LocalProfile | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    loadLocalProfile()
+      .then(profile => { if (mounted) setLocalProfile(profile); })
+      .catch(() => { if (mounted) setLocalProfile(null); });
+    return () => { mounted = false; };
+  }, []);
+  const displayName = localProfile?.fullName || 'Account details unavailable';
+  const initials = localProfile?.fullName
+    ? localProfile.fullName.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()
+    : 'NYU';
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.eyebrow}>Your account</Text>
       <Text style={styles.heading}>Profile</Text>
-      <View style={styles.identity}>
-        <View style={styles.avatar}><Text style={styles.avatarText}>NYU</Text></View>
+      <Pressable style={styles.identity} onPress={onOpenAccountSettings} accessibilityRole="button" accessibilityLabel="Open Account Settings">
+        <View style={styles.avatar}><Text style={styles.avatarText}>{initials}</Text></View>
         <View style={styles.identityText}>
-          <Text style={styles.accountName}>Account details unavailable</Text>
-          <Text style={styles.accountEmail}>Connect authentication to display your NYU account</Text>
-          <View style={styles.studentTag}><Text style={styles.studentTagText}>NYU Student</Text></View>
+          <Text style={styles.accountName}>{displayName}</Text>
+          <Text style={styles.accountEmail}>{localProfile?.email || 'Connect authentication to display your NYU account'}</Text>
+          <View style={styles.studentTag}><Text style={styles.studentTagText}>{localProfile?.program || 'NYU Student'}</Text></View>
         </View>
-      </View>
+      </Pressable>
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>ACCOUNT</Text>
         <View style={styles.settingRow}>
