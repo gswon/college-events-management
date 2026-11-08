@@ -6,18 +6,20 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { FIGMA_FRIENDS_PREVIEW, FIGMA_USERS, hidePreviewFriend, useHiddenPreviewFriends, type PreviewUser } from '../data/figmaFriendsPreview';
 import {
   calendarFriendsApi,
   type Friend,
   type FriendRequest,
 } from '../services/calendarFriendsApi';
 
-type Props = { visible: boolean; onClose: () => void };
+type Props = { visible: boolean; onClose: () => void; previewProfileId?: string | null };
 type DirectoryRow = {
   key: string;
   name: string;
@@ -186,33 +188,42 @@ function LiveAddFriendsSheet({ visible, onClose }: Props) {
  * no mock users enter the real friends API, and no real friend requests are sent.
  * Set to false when the Backend team provides a searchable user directory.
  */
-const FIGMA_FRIENDS_PREVIEW = true;
 
-type PreviewUser = {
-  id: string;
-  name: string;
-  email: string;
-  state: 'friend' | 'available';
-  color: string;
-};
-
-// Names, order and status follow the supplied "Add Friends" Figma frames.
-// Email addresses below are preview-only examples, not real account records.
-const FIGMA_USERS: PreviewUser[] = [
-  { id: 'maya', name: 'Maya Chen', email: 'maya.chen@nyu.edu', state: 'friend', color: '#E4EDF3' },
-  { id: 'leo', name: 'Leo Martinez', email: 'leo.martinez@nyu.edu', state: 'friend', color: '#F4E9E2' },
-  { id: 'priya', name: 'Priya Shah', email: 'priya.shah@nyu.edu', state: 'friend', color: '#E5F0EB' },
-  { id: 'sarah', name: 'Sarah Lee', email: 'sarah.lee@nyu.edu', state: 'available', color: '#F1E5EB' },
-  { id: 'daniel', name: 'Daniel Park', email: 'daniel.park@nyu.edu', state: 'available', color: '#F2EDE0' },
-  { id: 'emily', name: 'Emily Chen', email: 'emily.chen@nyu.edu', state: 'available', color: '#E3F0F1' },
-  { id: 'alex', name: 'Alex Kim', email: 'alex.kim@nyu.edu', state: 'available', color: '#E5EEF5' },
-  { id: 'michelle', name: 'Michelle Wang', email: 'michelle.wang@nyu.edu', state: 'available', color: '#F2E9E5' },
-];
-
-function FigmaFriendsPreview({ visible, onClose }: Props) {
+function FigmaFriendsPreview({ visible, onClose, previewProfileId }: Props) {
   const [search, setSearch] = useState('');
   const [requested, setRequested] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  // Preview-only state: never changes or removes actual Backend friends.
+  const [profileUser, setProfileUser] = useState<PreviewUser | null>(null);
+  const hiddenFriendIds = useHiddenPreviewFriends();
+  useEffect(() => {
+    if (visible && previewProfileId) {
+      const friend = FIGMA_USERS.find(user => user.id === previewProfileId && user.state === 'friend' && !hiddenFriendIds.includes(user.id));
+      setProfileUser(friend ?? null);
+    }
+  }, [visible, previewProfileId, hiddenFriendIds]);
+
+  const [calendarVisibleById, setCalendarVisibleById] = useState<Record<string, boolean>>({});
+  const closePreview = () => {
+    if (profileUser) {
+      setProfileUser(null);
+    } else {
+      onClose();
+    }
+  };
+  const removePreviewFriend = (user: PreviewUser) => {
+    Alert.alert(
+      'Remove friend?',
+      `Remove ${user.name} from your preview friends? This will not change the server.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove Friend', style: 'destructive', onPress: () => {
+          hidePreviewFriend(user.id);
+          setProfileUser(null);
+        } },
+      ]
+    );
+  };
 
   const addFriend = (id: string) => {
     setRequested(previous => previous.includes(id) ? previous : [...previous, id]);
@@ -229,9 +240,62 @@ function FigmaFriendsPreview({ visible, onClose }: Props) {
   );
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={closePreview}>
       <View style={styles.scrim}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close Add Friends" />
+        <Pressable style={StyleSheet.absoluteFill} onPress={closePreview} accessibilityLabel="Close" />
+        {profileUser ? (
+          <View style={styles.profileSheet}>
+            <View style={styles.profileHandle} />
+            <Pressable
+              style={styles.profileClose}
+              onPress={() => setProfileUser(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Close friend profile"
+            >
+              <Feather name="x" size={18} color="#8C8C92" />
+            </Pressable>
+            <View style={[styles.profileAvatar, { backgroundColor: profileUser.color }]}>
+              <Text style={styles.profileInitials}>{initials(profileUser.name)}</Text>
+            </View>
+            <Text style={styles.profileName}>{profileUser.name}</Text>
+            <Text style={styles.profileEmail}>{profileUser.email}</Text>
+            <View style={styles.profileStatus}>
+              <View style={styles.profileStatusDot} />
+              <Text style={styles.profileStatusText}>Friends</Text>
+            </View>
+            <View style={styles.profileRule} />
+            <View style={styles.profileActionRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.profileActionTitle}>View Calendar</Text>
+                <Text style={styles.profileActionSubtitle}>
+                  {calendarVisibleById[profileUser.id] === false ? 'Schedule is hidden' : 'Schedule is visible'}
+                </Text>
+              </View>
+              <Switch
+                value={calendarVisibleById[profileUser.id] !== false}
+                onValueChange={value => setCalendarVisibleById(prev => ({ ...prev, [profileUser.id]: value }))}
+                trackColor={{ false: '#DADADD', true: '#222326' }}
+                thumbColor="#FFFFFF"
+                accessibilityLabel={`View ${profileUser.name}'s calendar (preview)`}
+              />
+            </View>
+            <View style={styles.profileRule} />
+            <Pressable
+              style={styles.profileActionRow}
+              onPress={() => removePreviewFriend(profileUser)}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${profileUser.name} (preview only)`}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.profileRemoveTitle}>Remove Friend</Text>
+                <Text style={styles.profileActionSubtitle}>Remove calendar access</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color="#B44E57" />
+            </Pressable>
+            <View style={styles.profileRule} />
+            <Text style={styles.profilePreviewHint}>DESIGN PREVIEW · Changes are not sent to the server</Text>
+          </View>
+        ) : (
         <View style={styles.sheet}>
           <View style={styles.handle} />
           <View style={styles.headingRow}>
@@ -239,7 +303,7 @@ function FigmaFriendsPreview({ visible, onClose }: Props) {
               <Text style={styles.eyebrow}>NYU COMMUNITY</Text>
               <Text style={styles.title}>Add Friends</Text>
             </View>
-            <Pressable style={styles.closeButton} onPress={onClose} accessibilityLabel="Close">
+            <Pressable style={styles.closeButton} onPress={closePreview} accessibilityLabel="Close">
               <Feather name="x" size={19} color="#888" />
             </Pressable>
           </View>
@@ -271,17 +335,37 @@ function FigmaFriendsPreview({ visible, onClose }: Props) {
               const isRequested = requested.includes(user.id);
               return (
                 <View key={user.id} style={styles.personRow}>
-                  <View style={[styles.avatar, { backgroundColor: user.color }]}>
-                    <Text style={styles.initials}>{initials(user.name)}</Text>
-                  </View>
+                  {user.state === 'friend' && !hiddenFriendIds.includes(user.id) ? (
+                    <Pressable
+                      onPress={() => setProfileUser(user)}
+                      onLongPress={() => setProfileUser(user)}
+                      delayLongPress={350}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open ${user.name} friend profile`}
+                      accessibilityHint="Tap or hold to manage this preview friend"
+                      style={[styles.avatar, { backgroundColor: user.color }]}
+                    >
+                      <Text style={styles.initials}>{initials(user.name)}</Text>
+                    </Pressable>
+                  ) : (
+                    <View style={[styles.avatar, { backgroundColor: user.color }]}>
+                      <Text style={styles.initials}>{initials(user.name)}</Text>
+                    </View>
+                  )}
                   <View style={styles.personInfo}>
                     <Text style={styles.name} numberOfLines={1}>{user.name}</Text>
                     <Text style={styles.previewEmail} numberOfLines={1}>{user.email}</Text>
                   </View>
-                  {user.state === 'friend' ? (
-                    <View style={styles.statusPill}>
+                  {user.state === 'friend' && !hiddenFriendIds.includes(user.id) ? (
+                    <Pressable
+                      style={styles.statusPill}
+                      onPress={() => setProfileUser(user)}
+                      onLongPress={() => setProfileUser(user)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Manage ${user.name}`}
+                    >
                       <Text style={styles.statusText}>Friends</Text>
-                    </View>
+                    </Pressable>
                   ) : isRequested ? (
                     <View style={styles.requestActions}>
                       <View style={styles.requestedPill}>
@@ -314,6 +398,7 @@ function FigmaFriendsPreview({ visible, onClose }: Props) {
           </ScrollView>
           <Text style={styles.previewDisclosure}>DESIGN PREVIEW · Requests are not sent to the server</Text>
         </View>
+        )}
       </View>
     </Modal>
   );
@@ -365,4 +450,21 @@ const styles = StyleSheet.create({
   addButton: { height: 32, minWidth: 55, borderWidth: 1, borderColor: '#E3E3E7', backgroundColor: '#FFFFFF', borderRadius: 7, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 9 },
   addButtonText: { fontSize: 11, fontWeight: '600', color: '#292929' },
   previewDisclosure: { color: '#A7ABB3', fontSize: 9, textAlign: 'center', paddingBottom: 8, paddingTop: 4 },
+  // Figma Friend Profile Management bottom sheet (Preview-only users).
+  profileSheet: { backgroundColor: '#FFF', borderTopLeftRadius: 27, borderTopRightRadius: 27, paddingTop: 11, paddingHorizontal: 24, paddingBottom: 32, minHeight: 390 },
+  profileHandle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 4, backgroundColor: '#D9DADD' },
+  profileClose: { position: 'absolute', right: 22, top: 22, width: 34, height: 34, borderRadius: 17, backgroundColor: '#F4F4F5', justifyContent: 'center', alignItems: 'center' },
+  profileAvatar: { alignSelf: 'center', marginTop: 26, width: 68, height: 68, borderRadius: 34, justifyContent: 'center', alignItems: 'center' },
+  profileInitials: { fontSize: 17, fontWeight: '600', color: '#56768D' },
+  profileName: { textAlign: 'center', color: '#222', fontSize: 21, fontWeight: '700', marginTop: 17 },
+  profileEmail: { textAlign: 'center', color: '#A0A4AC', fontSize: 10, marginTop: 7 },
+  profileStatus: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 18, marginBottom: 28 },
+  profileStatusDot: { backgroundColor: '#649782', width: 6, height: 6, borderRadius: 3 },
+  profileStatusText: { color: '#649782', fontSize: 11 },
+  profileRule: { height: 1, backgroundColor: '#E8E8EB' },
+  profileActionRow: { minHeight: 65, flexDirection: 'row', alignItems: 'center' },
+  profileActionTitle: { color: '#242428', fontSize: 13 },
+  profileActionSubtitle: { color: '#AAAEB5', fontSize: 10, marginTop: 5 },
+  profileRemoveTitle: { color: '#B44E57', fontSize: 13 },
+  profilePreviewHint: { color: '#A7ABB3', fontSize: 9, marginTop: 14, textAlign: 'center' },
 });

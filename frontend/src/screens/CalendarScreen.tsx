@@ -5,6 +5,7 @@ import {
 import AddEventScreen, { type PersonalEvent } from './AddEventScreen';
 import AddFriendsSheet from './AddFriendsSheet';
 import FriendProfileSheet from './FriendProfileSheet';
+import { FIGMA_FRIENDS_PREVIEW, FIGMA_USERS, useHiddenPreviewFriends } from '../data/figmaFriendsPreview';
 import { useEffect, useState } from 'react';
 
 import {
@@ -96,6 +97,7 @@ export default function CalendarScreen({
 
   const [showAddEvent, setShowAddEvent] = useState(false);
   const [showAddFriends, setShowAddFriends] = useState(false);
+  const [previewProfileId, setPreviewProfileId] = useState<string | null>(null);
   const [profileFriend, setProfileFriend] = useState<{ id: number; name: string } | null>(null);
   const [editingEvent, setEditingEvent] = useState<PersonalEvent | null>(null);
   const [personalEvents, setPersonalEvents] = useState<PersonalEvent[]>([]);
@@ -103,6 +105,12 @@ export default function CalendarScreen({
     { id: number; name: string }[]
   >([]);
   const [selectedFriendIds, setSelectedFriendIds] = useState<number[]>([]);
+  const hiddenPreviewIds = useHiddenPreviewFriends();
+  const [selectedPreviewIds, setSelectedPreviewIds] = useState<string[]>([]);
+  const previewFriends = FIGMA_FRIENDS_PREVIEW
+    ? FIGMA_USERS.filter(person => person.state === 'friend' && !hiddenPreviewIds.includes(person.id))
+    : [];
+
   const [overlayItems, setOverlayItems] = useState<
     { userId: number; name: string; item: import('../services/calendarFriendsApi').CalendarItem }[]
   >([]);
@@ -289,6 +297,10 @@ const selectedEvents = events
       new Date(a.start_at).getTime() -
       new Date(b.start_at).getTime()
   );
+
+  useEffect(() => {
+    setSelectedPreviewIds(previous => previous.filter(id => !hiddenPreviewIds.includes(id)));
+  }, [hiddenPreviewIds]);
 
   useEffect(() => {
     if (activeTab !== 'Friends') return;
@@ -841,7 +853,7 @@ const selectedEvents = events
               Choose friends to compare schedules with your own.
             </Text>
 
-            {overlayFriends.length === 0 ? (
+            {overlayFriends.length === 0 && previewFriends.length === 0 ? (
               <Text style={styles.emptyMessage}>
                 No friends added yet.
               </Text>
@@ -854,6 +866,39 @@ const selectedEvents = events
                   marginBottom: 22,
                 }}
               >
+                {previewFriends.map((person) => {
+                  const selected = selectedPreviewIds.includes(person.id);
+                  const initials = person.name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+                  return (
+                    <Pressable
+                      key={`figma-${person.id}`}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: selected }}
+                      accessibilityLabel={`${person.name}, Figma preview only`}
+                      accessibilityHint="Toggle preview selection; no real schedule is available"
+                      onPress={() => setSelectedPreviewIds(previous => previous.includes(person.id)
+                        ? previous.filter(id => id !== person.id)
+                        : [...previous, person.id])}
+                      onLongPress={() => { setPreviewProfileId(person.id); setShowAddFriends(true); }}
+                      style={{ alignItems: 'center', width: 68 }}
+                    >
+                      <View style={{ width: 43, height: 43, borderRadius: 22, borderWidth: selected ? 1 : 0,
+                        borderColor: '#9BC9DE', backgroundColor: selected ? person.color : '#F1F1F2',
+                        justifyContent: 'center', alignItems: 'center' }}>
+                        <Text style={{ color: selected ? '#537D95' : '#9999A2', fontSize: 11 }}>{initials}</Text>
+                      </View>
+                      <Text numberOfLines={1} style={{ marginTop: 7, fontSize: 10, color: '#8F8F98' }}>
+                        {person.name.split(' ')[0]}
+                      </Text>
+                      <View style={{ borderWidth: 1, borderColor: '#E5E5E8', backgroundColor: selected ? '#F7F7F8' : '#FFFFFF',
+                        borderRadius: 5, marginTop: 8, paddingVertical: 4, paddingHorizontal: 5 }}>
+                        <Text style={{ color: selected ? '#777780' : '#A4A4AD', fontSize: 9 }}>
+                          {selected ? '✓ Preview' : '+ Preview'}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
                 {overlayFriends.map((friend, friendIndex) => {
                   const selected = selectedFriendIds.includes(friend.id);
 
@@ -963,10 +1008,19 @@ const selectedEvents = events
               </View>
             )}
 
+            {selectedPreviewIds.length > 0 && (
+              <Text style={{ color: '#87909B', fontSize: 11, marginBottom: 12, lineHeight: 17 }}>
+                Figma preview: {previewFriends.filter(person => selectedPreviewIds.includes(person.id)).map(person => person.name).join(', ')}. These example friends have no server schedule yet.
+              </Text>
+            )}
             {overlayLoading ? (
               <ActivityIndicator color="#57068C" />
             ) : overlayError ? (
               <Text style={styles.emptyMessage}>{overlayError}</Text>
+            ) : selectedFriendIds.length === 0 && selectedPreviewIds.length > 0 ? (
+              <Text style={styles.emptyMessage}>
+                No real schedules for preview-only friends.
+              </Text>
             ) : selectedFriendIds.length === 0 ? (
               <Text style={styles.emptyMessage}>
                 Select friends to view shared schedules.
@@ -1206,7 +1260,11 @@ const selectedEvents = events
         )}
       </View>
     </ScrollView>
-    <AddFriendsSheet visible={showAddFriends} onClose={() => setShowAddFriends(false)} />
+    <AddFriendsSheet
+      visible={showAddFriends}
+      previewProfileId={previewProfileId}
+      onClose={() => { setShowAddFriends(false); setPreviewProfileId(null); }}
+    />
     <FriendProfileSheet
       friend={profileFriend}
       calendarVisible={profileFriend !== null && selectedFriendIds.includes(profileFriend.id)}
