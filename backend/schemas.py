@@ -1,7 +1,17 @@
+import string
 from datetime import datetime, timezone
 from typing import Annotated, Generic, Literal, Optional, TypeVar, Union
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, PlainSerializer, StringConstraints, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    StringConstraints,
+    model_validator,
+)
 
 
 def _to_utc_z(value: datetime) -> str:
@@ -202,3 +212,90 @@ class FriendRequestOut(ORMModel):
     to_user: UserBrief
     status: Literal["PENDING", "ACCEPTED", "DECLINED", "CANCELLED"]
     created_at: UTCDateTime
+
+
+# --- 인증 (/auth, /users/me/password) -------------------------------------
+
+Email = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, to_lower=True, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$"),
+]
+# 로그인·현재 비밀번호는 규칙 없이 그대로 Supabase에 넘긴다. 72 = bcrypt 한계.
+Password = Annotated[str, StringConstraints(min_length=1, max_length=72)]
+# 새 비밀번호 규칙. Supabase 대시보드 설정(8자 이상, 소문자·대문자·숫자·특수문자 각 1개 이상)과 같아야 한다.
+# 재설정 코드는 한 번 쓰면 사라지므로, Supabase에서 거절되기 전에 여기서 먼저 걸러야 한다.
+# 문자 집합은 Supabase의 "Lowercase, uppercase letters, digits and symbols" 옵션과 같다.
+_PASSWORD_CHAR_SETS = (
+    ("소문자", string.ascii_lowercase),
+    ("대문자", string.ascii_uppercase),
+    ("숫자", string.digits),
+    ("특수문자", "!@#$%^&*()_+-=[]{};'\\:\"|<>?,./`~"),
+)
+
+
+def _check_password_chars(value: str) -> str:
+    missing = [name for name, chars in _PASSWORD_CHAR_SETS if not any(c in chars for c in value)]
+    if missing:
+        raise ValueError(f"비밀번호에 {', '.join(missing)}를 포함해야 합니다.")
+    return value
+
+
+NewPassword = Annotated[str, StringConstraints(min_length=8, max_length=72), AfterValidator(_check_password_chars)]
+OtpCode = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\d{6,10}$")]
+DisplayName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
+
+
+class SignupIn(BaseModel):
+    email: Email
+    password: NewPassword
+    display_name: DisplayName
+
+
+class SignupOut(BaseModel):
+    email: str  # 인증 코드를 보낸 주소
+
+
+class EmailIn(BaseModel):
+    email: Email
+
+
+class VerifyEmailIn(BaseModel):
+    email: Email
+    code: OtpCode
+
+
+class LoginIn(BaseModel):
+    email: Email
+    password: Password
+
+
+class RefreshIn(BaseModel):
+    refresh_token: Annotated[str, StringConstraints(min_length=1)]
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: Password
+    new_password: NewPassword
+
+
+class PasswordResetIn(BaseModel):
+    email: Email
+    code: OtpCode
+    new_password: NewPassword
+
+
+class MeOut(ORMModel):
+    id: int
+    email: str
+    display_name: str
+    profile_image_url: Optional[str]
+
+
+class AuthSession(BaseModel):
+    """앱은 두 토큰을 SecureStore에 저장하고, API 호출 때 Authorization: Bearer <access_token>."""
+
+    access_token: str
+    refresh_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int  # access_token 유효 시간(초)
+    user: MeOut
