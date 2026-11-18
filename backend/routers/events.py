@@ -42,6 +42,7 @@ def _search_condition(q: str):
 @router.get("/events", response_model=Page[EventListItem])
 def list_events(
     db: db_dependency,
+    user: optional_user_dependency,
     start: Annotated[AwareDatetime, Query(description="Range start (ISO 8601 with a UTC offset)")],
     end: Annotated[AwareDatetime, Query(description="Range end (ISO 8601 with a UTC offset)")],
     category: Annotated[Optional[str], Query(description="Category code, e.g. CAREER")] = None,
@@ -53,9 +54,8 @@ def list_events(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ):
     start_utc, end_utc = utc_range(start, end)
-    if followed_only:
-        # Needs the organization follow API (see plan.md). Until then, say so instead of a misleading 401.
-        raise APIError(501, "NOT_IMPLEMENTED", "followed_only is not supported yet.")
+    if followed_only and user is None:
+        raise APIError(401, "AUTH_REQUIRED", "Log in to see events from organizations you follow.")
 
     Event = models.Event
     stmt = (
@@ -63,6 +63,11 @@ def list_events(
         .options(joinedload(Event.category), joinedload(Event.organization))
         .where(Event.status != "HIDDEN", Event.start_at < end_utc, Event.end_at > start_utc)
     )
+    if followed_only:
+        Follow = models.OrganizationFollow
+        stmt = stmt.where(Event.organization_id.in_(
+            select(Follow.organization_id).where(Follow.user_id == user.id)
+        ))
 
     if category is not None:
         category_id = db.scalar(select(models.EventCategory.id).where(models.EventCategory.code == category))

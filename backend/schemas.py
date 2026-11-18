@@ -53,6 +53,23 @@ class OrganizationSummary(OrganizationBrief):
     logo_url: Optional[str]
 
 
+class OrganizationListItem(OrganizationSummary):
+    is_following: bool  # false for anonymous requests
+
+
+class OrganizationDetail(OrganizationSummary):
+    description: Optional[str]
+    website_url: Optional[str]
+    instagram_handle: Optional[str]
+    follower_count: int = 0
+    is_following: bool = False  # false for anonymous requests
+
+
+class OrganizationFollowOut(BaseModel):
+    organization_id: int
+    is_following: bool
+
+
 class EventListItem(ORMModel):
     id: int
     title: str

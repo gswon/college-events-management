@@ -8,9 +8,9 @@
 
 | 구분 | 개수 |
 |---|---|
-| 구현 완료 | 33 |
-| 구현됐지만 일부 빠짐 | 1 (완료 33개에 포함) |
-| 미구현 | 21 |
+| 구현 완료 | 38 |
+| 구현됐지만 일부 빠짐 | 0 |
+| 미구현 | 16 |
 
 ## 우선순위
 
@@ -22,9 +22,9 @@
 4. [ ] `/schedule-imports` — 수업 일정을 넣는 유일한 방법 (Albert .ics)
 5. 나머지 (아래 목록)
 
-## 미구현 (21개)
+## 미구현 (16개)
 
-### 유저 `/users` (6개 남음)
+### 유저 `/users` (5개 남음)
 
 - [x] `GET /users/me` — 내 정보 (11-18, `routers/users.py`)
 - [x] `PATCH /users/me` — display_name, profile_image_url 수정 (11-18). 사진은 http(s) URL만 저장, 파일 업로드는 아직 없음
@@ -32,7 +32,7 @@
 - [ ] `GET /users/me/sharing-defaults` — 새 친구에게 적용할 기본 공유 수준
 - [ ] `PATCH /users/me/sharing-defaults` — `{class?, personal?, event?, apply_to_existing_friends?}`
 - [ ] `GET /users/me/saved-events` — 저장한 이벤트 목록. `?status=GOING&upcoming=true`
-- [ ] `GET /users/me/following` — 팔로우한 단체 목록
+- [x] `GET /users/me/following` — 팔로우한 단체 목록 (11-18, 이름순, 페이지 없음)
 - [x] `GET /users/search` — `?q=` 이메일 정확 일치 또는 이름 부분 일치, 최대 20명 (11-18). 명세에 더해 `friend_status`를 넣고, 이름 검색은 2자 이상, 다른 사람 이메일은 응답에 안 넣음
 - [ ] `GET /users/{user_id}` — 프로필 + friend_status (NONE / REQUESTED / RECEIVED / FRIENDS)
 
@@ -43,12 +43,12 @@
 - [ ] `GET /events/{event_id}/friends` — 이 이벤트를 저장한 친구 목록 (status 포함)
 - [ ] `GET /events/friends-activity` — 친구들이 저장한 다가오는 이벤트, 친구 수 많은 순
 
-### 단체 `/organizations` (4개)
+### 단체 `/organizations` (11-18 완료)
 
-- [ ] `GET /organizations` — 공개. 목록·검색 `?q&cursor&limit`
-- [ ] `GET /organizations/{org_id}` — 공개. 상세 + 팔로워 수 + is_following
-- [ ] `PUT /organizations/{org_id}/follow` — 팔로우
-- [ ] `DELETE /organizations/{org_id}/follow` — 언팔로우
+- [x] `GET /organizations` — 공개. 목록·검색 `?q&cursor&limit`. 이름순 커서, 명세에 더해 항목마다 `is_following`
+- [x] `GET /organizations/{org_id}` — 공개. 상세 + 팔로워 수 + is_following (비로그인은 false)
+- [x] `PUT /organizations/{org_id}/follow` — 팔로우. 반복해도 결과 같음, 없는 단체는 404
+- [x] `DELETE /organizations/{org_id}/follow` — 언팔로우. 팔로우 안 했어도 204
 
 ### Albert 시간표 `/schedule-imports` (3개)
 
@@ -69,15 +69,16 @@
 - [ ] `POST /admin/organizations/bulk-upsert` — 단체 일괄 적재
 - [ ] `PATCH /admin/organizations/{org_id}` — 수정
 
-## 구현됐지만 일부 빠진 것 (1개 남음)
+## 구현됐지만 일부 빠진 것 (모두 완료)
 
-- [ ] `GET /events?followed_only=true` — 로그인 기능 전에 만든 임시 코드라 지금은 항상 401. 단체 팔로우 API가 생기면 `organization_follows`로 필터링하도록 바꿔야 함
+- [x] `GET /events?followed_only=true` — 로그인 기능 전에 만든 임시 코드라 지금은 항상 401. 단체 팔로우 API가 생기면 `organization_follows`로 필터링하도록 바꿔야 함 → 11-18 완료. 팔로우한 단체의 이벤트만, 비로그인은 401
 - [x] `GET /events/{event_id}` — 로그인 상태일 때 줘야 하는 `my_save_status`, `friends_going_count`, 친구 미리보기 3명이 없음 → 11-18 완료. 미리보기 필드 이름은 `friends_going`(이름순 최대 3명). GOING이면서 이벤트를 DETAILS로 공유하는 친구만 센다. 로그인 없이 부르면 `null`/`0`/`[]`, 잘못된 토큰은 401
 
-## 구현 완료 (33개)
+## 구현 완료 (38개)
 
 - 인증 8개: signup, verify-email, verify-email/resend, login, refresh, logout, password/forgot, password/reset
-- 유저 4개: `GET·PATCH /users/me`, `PUT /users/me/password`, `GET /users/search`
+- 유저 5개: `GET·PATCH /users/me`, `PUT /users/me/password`, `GET /users/search`, `GET /users/me/following`
+- 단체 4개: `GET /organizations`, `GET /organizations/{org_id}`, `PUT·DELETE /organizations/{org_id}/follow`
 - 캘린더 3개: `GET /calendar`, `GET /users/{user_id}/calendar`, `GET /calendar/overlay`
 - 내 일정 4개: `POST /entries`, `GET·PATCH·DELETE /entries/{entry_id}`
 - 친구 9개: 목록, 끊기, 요청 목록·보내기·수락·거절·취소, 공유 수준 조회·수정

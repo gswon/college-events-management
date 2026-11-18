@@ -63,6 +63,17 @@ class Organization(Base):
     )
 
 
+
+class OrganizationFollow(Base):
+    __tablename__ = "organization_follows"
+
+    user_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"), primary_key=True)
+    organization_id: Mapped[int] = mapped_column(
+        BIGINT(unsigned=True), ForeignKey("organizations.id"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
+
+
 class Event(Base):
     __tablename__ = "events"
 

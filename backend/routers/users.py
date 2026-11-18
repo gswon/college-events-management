@@ -13,7 +13,7 @@ import models
 from auth import user_dependency
 from database import db_dependency
 from errors import APIError
-from schemas import MeOut, MeUpdate, UserSearchItem
+from schemas import MeOut, MeUpdate, OrganizationSummary, UserSearchItem
 
 router = APIRouter(tags=["users"])
 
@@ -36,6 +36,18 @@ def update_me(body: MeUpdate, db: db_dependency, user: user_dependency):
         setattr(user, field, value)
     db.commit()
     return user
+
+
+@router.get("/users/me/following", response_model=list[OrganizationSummary])
+def my_following(db: db_dependency, user: user_dependency):
+    """Organizations I follow, by name. Not paginated: one person follows only a handful."""
+    Organization, Follow = models.Organization, models.OrganizationFollow
+    return db.scalars(
+        select(Organization)
+        .join(Follow, Follow.organization_id == Organization.id)
+        .where(Follow.user_id == user.id)
+        .order_by(Organization.name, Organization.id)
+    ).all()
 
 
 # --- Search -------------------------------------------------------------------

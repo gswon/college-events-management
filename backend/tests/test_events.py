@@ -125,7 +125,7 @@ def test_list_errors(client, db):
     assert_error(events_in(client, category="NOPE"), 400, "INVALID_CATEGORY")
     assert_error(events_in(client, cursor="not-a-cursor"), 400, "INVALID_CURSOR")
     assert_error(events_in(client, limit=101), 422, "VALIDATION_ERROR")
-    assert_error(events_in(client, followed_only="true"), 501, "NOT_IMPLEMENTED")
+    assert_error(events_in(client, followed_only="true"), 401, "AUTH_REQUIRED")  # anonymous
 
 
 # --- detail ---------------------------------------------------------------
