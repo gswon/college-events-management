@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import {
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -70,6 +71,38 @@ export default function AddEventScreen({
   const [location, setLocation] = useState(initialEvent?.location ?? '');
   const [notes, setNotes] = useState(initialEvent?.notes ?? '');
   const [activeTimePicker, setActiveTimePicker] = useState<'start' | 'end' | null>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [datePickerMonth, setDatePickerMonth] = useState(new Date(date.getFullYear(), date.getMonth(), 1));
+  const [draftTime, setDraftTime] = useState(new Date());
+  const [timeSelection, setTimeSelection] = useState<'start' | 'end'>('start');
+
+  function openTimePicker(which: 'start' | 'end') {
+    const [hour, minute] = (which === 'start' ? startTime : endTime).split(':').map(Number);
+    const value = new Date(date);
+    value.setHours(hour, minute, 0, 0);
+    setDraftTime(value);
+    setTimeSelection(which);
+    setActiveTimePicker(which);
+  }
+
+  function applyTime() {
+    const time = hhmm(draftTime);
+    if (timeSelection === 'start') setStartTime(time);
+    else setEndTime(time);
+    setActiveTimePicker(null);
+  }
+  function formatTime(value: string) {
+    const [h, m] = value.split(':').map(Number);
+    const period = h < 12 ? 'AM' : 'PM';
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${period}`;
+  }
+  const dateCount = new Date(datePickerMonth.getFullYear(), datePickerMonth.getMonth()+1,0).getDate();
+  const dayOffset = new Date(datePickerMonth.getFullYear(), datePickerMonth.getMonth(),1).getDay();
+  const displayPickerDays = Array.from({length:Math.ceil((dayOffset+dateCount)/7)*7}, (_,i)=> i-dayOffset+1);
+  const startMinute = Number(startTime.split(':')[0])*60+Number(startTime.split(':')[1]);
+  const endMinute = Number(endTime.split(':')[0])*60+Number(endTime.split(':')[1]);
+  const interval = endMinute - startMinute;
+
 
   function changeDate(offset: number) {
     setDate(previous =>
@@ -165,15 +198,18 @@ export default function AddEventScreen({
         <View style={styles.dateRow}>
           <Feather name="calendar" size={18} color="#92929D" />
           <Text style={styles.dateLabel}>Date</Text>
-          <View style={styles.dateControls}>
-            <Pressable onPress={() => changeDate(-1)} style={styles.dateArrow}>
-              <Feather name="chevron-left" size={18} color="#171717" />
-            </Pressable>
+          <Pressable
+            style={styles.dateControls}
+            onPress={() => {
+              setDatePickerMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+              setDatePickerOpen(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Choose event date"
+          >
             <Text style={styles.dateValue}>{dateText(date)}</Text>
-            <Pressable onPress={() => changeDate(1)} style={styles.dateArrow}>
-              <Feather name="chevron-right" size={18} color="#171717" />
-            </Pressable>
-          </View>
+            <Feather name="chevron-right" size={16} color="#92929D" />
+          </Pressable>
         </View>
 
         <View style={styles.allDayRow}>
@@ -190,31 +226,34 @@ export default function AddEventScreen({
             <View style={styles.timeBox}>
               <Text style={styles.timeLabel}>Start time (HH:MM)</Text>
               <Pressable
-                onPress={() => setActiveTimePicker('start')}
+                onPress={() => openTimePicker('start')}
                 accessibilityLabel="Select start time"
               >
                 <Text style={styles.timeInput}>
-                  {new Date(`2000-01-01T${startTime}:00`).toLocaleTimeString(
-                    'en-US',
-                    { hour: 'numeric', minute: '2-digit' }
-                  )}
+                  {formatTime(startTime)}
                 </Text>
               </Pressable>
             </View>
             <View style={styles.timeBox}>
               <Text style={styles.timeLabel}>End time (HH:MM)</Text>
               <Pressable
-                onPress={() => setActiveTimePicker('end')}
+                onPress={() => openTimePicker('end')}
                 accessibilityLabel="Select end time"
               >
                 <Text style={styles.timeInput}>
-                  {new Date(`2000-01-01T${endTime}:00`).toLocaleTimeString(
-                    'en-US',
-                    { hour: 'numeric', minute: '2-digit' }
-                  )}
+                  {formatTime(endTime)}
                 </Text>
               </Pressable>
             </View>
+          </View>
+        )}
+
+        {!allDay && (
+          <View style={styles.timeHelper}>
+            <Text style={styles.timeHelperText}>Tap a time to change it</Text>
+            <Text style={styles.timeHelperText}>
+              {interval > 0 ? `${Math.floor(interval / 60)}h${interval % 60 ? ` ${interval % 60}m` : ''}` : 'Check time'} · Local time
+            </Text>
           </View>
         )}
 
@@ -239,48 +278,91 @@ export default function AddEventScreen({
         />
       </ScrollView>
 
-      {activeTimePicker !== null && (
-        <View style={styles.pickerContainer}>
-          <View style={styles.pickerHeader}>
-            <Text style={styles.pickerTitle}>
-              {activeTimePicker === 'start' ? 'Start time' : 'End time'}
-            </Text>
-            <Pressable onPress={() => setActiveTimePicker(null)}>
-              <Text style={styles.pickerDone}>Done</Text>
-            </Pressable>
+      <Modal visible={datePickerOpen} transparent animationType="fade" onRequestClose={() => setDatePickerOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setDatePickerOpen(false)} />
+          <View style={styles.dateModal}>
+            <View style={styles.modalTopRow}>
+              <Text style={styles.modalTitle}>Select date</Text>
+              <Pressable onPress={() => setDatePickerOpen(false)}><Text style={styles.cancel}>Cancel</Text></Pressable>
+            </View>
+            <View style={styles.dateMonthRow}>
+              <Pressable onPress={() => setDatePickerMonth(new Date(datePickerMonth.getFullYear(), datePickerMonth.getMonth()-1, 1))} accessibilityLabel="Previous month">
+                <Feather name="chevron-left" size={18} color="#777" />
+              </Pressable>
+              <Text style={styles.dateMonthTitle}>{datePickerMonth.toLocaleDateString('en-US',{month:'long',year:'numeric'})}</Text>
+              <Pressable onPress={() => setDatePickerMonth(new Date(datePickerMonth.getFullYear(), datePickerMonth.getMonth()+1, 1))} accessibilityLabel="Next month">
+                <Feather name="chevron-right" size={18} color="#777" />
+              </Pressable>
+            </View>
+            <View style={styles.dateGrid}>
+              {['S','M','T','W','T','F','S'].map((name,index)=>(
+                <View key={`weekday-${index}`} style={styles.dateCell}><Text style={styles.weekday}>{name}</Text></View>
+              ))}
+              {displayPickerDays.map((day,index)=>(
+                <Pressable
+                  key={`date-${index}`}
+                  style={styles.dateCell}
+                  disabled={day < 1 || day > dateCount}
+                  onPress={() => {setDate(new Date(datePickerMonth.getFullYear(),datePickerMonth.getMonth(),day));setDatePickerOpen(false);}}
+                >
+                  {day >= 1 && day <= dateCount ? (
+                    <View style={[styles.dateNumberCircle,
+                      date.getDate()===day && date.getMonth()===datePickerMonth.getMonth() && date.getFullYear()===datePickerMonth.getFullYear() && styles.selectedDateNumber]}>
+                      <Text style={[styles.dateNumber,
+                        date.getDate()===day && date.getMonth()===datePickerMonth.getMonth() && date.getFullYear()===datePickerMonth.getFullYear() && styles.selectedDateNumberText]}>{day}</Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.modalHint}>Choose a date to apply</Text>
           </View>
-
-          <DateTimePicker
-            value={(() => {
-              const value = activeTimePicker === 'start' ? startTime : endTime;
-              const [hours, minutes] = value.split(':').map(Number);
-              const time = new Date();
-              time.setHours(hours, minutes, 0, 0);
-              return time;
-            })()}
-            mode="time"
-            display="spinner"
-            minuteInterval={5}
-            onValueChange={(_, selectedTime) => {
-              if (!selectedTime) return;
-
-              const value =
-                String(selectedTime.getHours()).padStart(2, '0') +
-                ':' +
-                String(selectedTime.getMinutes()).padStart(2, '0');
-
-              if (activeTimePicker === 'start') {
-                setStartTime(value);
-              } else {
-                setEndTime(value);
-              }
-            }}
-          />
         </View>
-      )}
+      </Modal>
+
+      <Modal visible={activeTimePicker !== null} transparent animationType="slide" onRequestClose={() => setActiveTimePicker(null)}>
+        <View style={styles.timeBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setActiveTimePicker(null)} />
+          <View style={styles.timeSheet}>
+            <View style={styles.sheetHandle}/>
+            <View style={styles.modalTopRow}>
+              <Text style={styles.sheetTitle}>Set time</Text>
+              <Pressable onPress={() => setActiveTimePicker(null)} accessibilityLabel="Close time picker"><Feather name="x" size={22} color="#555" /></Pressable>
+            </View>
+            <Text style={styles.sheetDate}>{date.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})}</Text>
+            <View style={styles.timeRow}>
+              {(['start','end'] as const).map(which => (
+                <Pressable
+                  key={which}
+                  style={[styles.timeBox, timeSelection === which && styles.activeTimeBox]}
+                  onPress={() => openTimePicker(which)}
+                >
+                  <Text style={[styles.timeLabel, timeSelection === which && styles.activeTimeText]}>{which === 'start' ? 'Start' : 'End'}</Text>
+                  <Text style={[styles.timeInput, timeSelection === which && styles.activeTimeText]}>{formatTime(which === 'start' ? startTime : endTime)}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.timeWheelHint}>Scroll to set the {timeSelection} time</Text>
+            <DateTimePicker
+              value={draftTime}
+              mode="time"
+              display="spinner"
+              minuteInterval={5}
+              onValueChange={(_, value) => {if(value) setDraftTime(value);}}
+              style={styles.nativeTimePicker}
+            />
+            <Text style={styles.timeSummary}>{formatTime(startTime)}–{formatTime(endTime)}</Text>
+            <Pressable style={styles.saveButton} onPress={applyTime}><Text style={styles.saveText}>Set Time</Text></Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.footer}>
-        <Text style={styles.privacy}>Only you · Saves to My Calendar</Text>
+        <View style={styles.privacyRow}>
+          <Feather name="lock" size={12} color="#9999A3" />
+          <Text style={styles.privacy}>Only you · Saves to My Calendar</Text>
+        </View>
         <Pressable style={styles.saveButton} onPress={saveEvent}>
           <Text style={styles.saveText}>
             {initialEvent ? 'Save Changes' : 'Save Event'}
@@ -333,7 +415,7 @@ const styles = StyleSheet.create({
   dateLabel: { fontSize: 14, color: '#171717' },
   dateControls: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   dateArrow: { padding: 4 },
-  dateValue: { fontSize: 12, color: '#171717', marginHorizontal: 2 },
+  dateValue: { fontSize: 12, color: '#171717', marginRight: 5 },
   allDayRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -350,7 +432,34 @@ const styles = StyleSheet.create({
   },
   timeLabel: { color: '#9999A3', fontSize: 11 },
   timeInput: { color: '#171717', fontSize: 20, fontWeight: '600', marginTop: 6, padding: 0 },
-  notesInput: { minHeight: 100 },
+  notesInput: { minHeight: 80 },
+  timeHelper: {flexDirection:'row',justifyContent:'space-between',marginBottom:8},
+  timeHelperText: {color:'#A0A0A8',fontSize:11},
+  privacyRow: {flexDirection:'row',alignItems:'center',justifyContent:'center',gap:6,marginBottom:12},
+  modalBackdrop: {flex:1,backgroundColor:'rgba(0,0,0,0.28)',justifyContent:'center',paddingHorizontal:24},
+  dateModal: {backgroundColor:'#FFF',borderRadius:16,padding:20},
+  modalTopRow: {flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:20},
+  modalTitle: {fontSize:17,fontWeight:'700',color:'#171717'},
+  dateMonthRow: {flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:12},
+  dateMonthTitle: {fontSize:15,fontWeight:'600',color:'#171717'},
+  dateGrid: {flexDirection:'row',flexWrap:'wrap'},
+  dateCell: {width:'14.2857%',height:39,alignItems:'center',justifyContent:'center'},
+  weekday: {fontSize:11,color:'#787882'},
+  dateNumberCircle: {width:32,height:32,borderRadius:16,alignItems:'center',justifyContent:'center'},
+  dateNumber: {fontSize:13,color:'#171717'},
+  selectedDateNumber: {backgroundColor:'#1C1C1E'},
+  selectedDateNumberText: {color:'#FFFFFF'},
+  modalHint: {marginTop:18,fontSize:11,color:'#92929D',textAlign:'center'},
+  timeBackdrop: {flex:1,justifyContent:'flex-end',backgroundColor:'rgba(0,0,0,0.2)'},
+  timeSheet: {backgroundColor:'#FFF',borderTopLeftRadius:24,borderTopRightRadius:24,paddingHorizontal:20,paddingBottom:32,paddingTop:10},
+  sheetHandle: {width:38,height:4,borderRadius:2,backgroundColor:'#DEDEE4',alignSelf:'center',marginBottom:20},
+  sheetTitle: {color:'#171717',fontSize:20,fontWeight:'700'},
+  sheetDate: {fontSize:12,color:'#9A9AA3',marginBottom:20},
+  activeTimeBox: {backgroundColor:'#171717',borderColor:'#171717'},
+  activeTimeText: {color:'#FFFFFF'},
+  timeWheelHint: {textAlign:'center',fontSize:12,color:'#85858E',marginTop:10},
+  nativeTimePicker: {alignSelf:'center',width:'100%',height:190},
+  timeSummary: {textAlign:'center',color:'#66666C',fontSize:12,marginVertical:15},
   pickerContainer: {
     paddingHorizontal: 20,
     paddingVertical: 8,
@@ -373,8 +482,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#57068C',
   },
-  footer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12 },
-  privacy: { color: '#A0A0A8', textAlign: 'center', fontSize: 12, marginBottom: 12 },
+  footer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 18 },
+  privacy: { color: '#A0A0A8', textAlign: 'center', fontSize: 12 },
   saveButton: {
     backgroundColor: '#171717',
     borderRadius: 12,

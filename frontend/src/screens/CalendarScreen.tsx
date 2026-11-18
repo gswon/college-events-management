@@ -96,6 +96,25 @@ export default function CalendarScreen({
   );
 
   const [showAddEvent, setShowAddEvent] = useState(false);
+  const [lastSavedEventId, setLastSavedEventId] = useState<string | null>(null);
+  const [showSavedBanner, setShowSavedBanner] = useState(false);
+
+  useEffect(() => {
+    if (lastSavedEventId === null) return;
+
+    const bannerTimer = setTimeout(() => {
+      setShowSavedBanner(false);
+    }, 3000);
+
+    const highlightTimer = setTimeout(() => {
+      setLastSavedEventId(null);
+    }, 5000);
+
+    return () => {
+      clearTimeout(bannerTimer);
+      clearTimeout(highlightTimer);
+    };
+  }, [lastSavedEventId]);
   const [showAddFriends, setShowAddFriends] = useState(false);
   const [previewProfileId, setPreviewProfileId] = useState<string | null>(null);
   const [profileFriend, setProfileFriend] = useState<{ id: number; name: string } | null>(null);
@@ -599,6 +618,8 @@ const selectedEvents = events
               1
             )
           );
+          setLastSavedEventId(`backend-${created.id}`);
+          setShowSavedBanner(true);
           setShowAddEvent(false);
         } catch (error) {
           console.error('Failed to save event:', error);
@@ -657,6 +678,13 @@ const selectedEvents = events
         ))}
       </View>
 
+      {showSavedBanner && activeTab === 'My Calendar' && (
+        <View style={styles.savedBanner}>
+          <Feather name="check-circle" size={17} color="#171717" />
+          <Text style={styles.savedBannerText}>Event saved to My Calendar</Text>
+        </View>
+      )}
+
       <View style={styles.monthHeader}>
         <Pressable
           onPress={() => changeMonth(-1)}
@@ -692,6 +720,18 @@ const selectedEvents = events
             selectedDate.getMonth() === month &&
             selectedDate.getDate() === day;
 
+
+          const persistentRingDay =
+            activeTab === 'Friends' &&
+            new Set(
+              overlayItems
+                .filter(({ item }) =>
+                  new Date(item.start_at) < new Date(year, month, day + 1) &&
+                  new Date(item.end_at) > new Date(year, month, day)
+                )
+                .map(({ userId }) => userId)
+            ).size >= 8;
+
           return (
             <Pressable
               key={`${year}-${month}-${day}`}
@@ -701,90 +741,56 @@ const selectedEvents = events
               <View
                 style={[
                   styles.dateCircle,
-                  selected && styles.selectedCircle,
+                  (selected || persistentRingDay) && styles.selectedCircle,
                 ]}
               >
                 <Text
                   style={[
                     styles.dayText,
-                    selected && styles.selectedDayText,
+                    (selected || persistentRingDay) && styles.selectedDayText,
                   ]}
                 >
                   {day}
                 </Text>
-                {activeTab === 'Friends' ? (
-                  selectedFriendIds.length > 0 && (
-                    <View
-                      style={{
-                        position: 'absolute',
-                        bottom: 5,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 3,
-                      }}
-                    >
-                      {Array.from(
-                        new Set(
-                          overlayItems
-                            .filter(({ item }) => {
-                              const dayStart = new Date(year, month, day);
-                              const dayEnd = new Date(year, month, day + 1);
-
-                              return (
-                                new Date(item.start_at) < dayEnd &&
-                                new Date(item.end_at) > dayStart
-                              );
-                            })
-                            .map(({ userId }) => userId)
-                        )
-                      )
-                        .sort((a, b) => a - b)
-                        .slice(0, 3)
-                        .map((userId) => {
-                          const friendIndex = overlayFriends.findIndex(
-                            (friend) => friend.id === userId
-                          );
-                          const friendColors = [
-                            '#9BC9DE',
-                            '#CB927A',
-                            '#D0D0D4',
-                          ];
-
-                          const dotColor = selected
-                            ? '#FFFFFF'
-                            : userId === 1
-                              ? '#1C1C1E'
-                              : friendColors[
-                                  Math.max(friendIndex, 0) %
-                                    friendColors.length
-                                ];
-
-                          return (
-                            <View
-                              key={userId}
-                              style={{
-                                width: 4,
-                                height: 4,
-                                borderRadius: 2,
-                                backgroundColor: dotColor,
-                              }}
-                            />
-                          );
-                        })}
-                    </View>
-                  )
-                ) : (
-                  (events.some(event => {
-                    const date = getEventDate(event);
-                    return date !== null &&
-                      isSameDay(date, new Date(year, month, day));
-                  }) || hasPersonalEvent(day)) && (
-                    <View style={[
-                      styles.eventDot,
-                      selected && styles.selectedEventDot,
-                    ]} />
-                  )
-                )}
+                {(() => {
+                  const dayStart = new Date(year, month, day);
+                  const dayEnd = new Date(year, month, day + 1);
+                  // In Friends, count unique friends with schedule entries, not individual events.
+                  const friendIds = Array.from(new Set(overlayItems
+                    .filter(({item}) => new Date(item.start_at) < dayEnd && new Date(item.end_at) > dayStart)
+                    .map(({userId}) => userId))).sort((a,b) => a-b);
+                  const myEventsCount = events.filter(event => {
+                    const start = getEventDate(event);
+                    const end = event.end_at ? new Date(event.end_at) : null;
+                    return start !== null && start < dayEnd && (end === null || end > dayStart);
+                  }).length + allPersonalEvents.filter(event =>
+                    new Date(event.start_at) < dayEnd && new Date(event.end_at) > dayStart
+                  ).length;
+                  const count = activeTab === 'Friends' ? friendIds.length : myEventsCount;
+                  if (!count) return null;
+                  if (count >= 8) {
+                    return <View style={[styles.countRing, selected && styles.selectedCountRing]}>
+                      <Text style={styles.countRingText}>+{count}</Text>
+                    </View>;
+                  }
+                  if (count === 1) {
+                    return <View style={[styles.eventDot, selected && styles.selectedEventDot]} />;
+                  }
+                  const colors = ['#C08C78','#9BC9DE','#C5C5CC','#928FC6','#C2A56F','#86B2A2','#DF9EB1'];
+                  return <View pointerEvents="none" style={styles.markerRing}>
+                    {Array.from({length:count},(_,i) => {
+                      const angle = Math.PI / 2
+                        + ((count - 1) / 2 - i) * (Math.PI / 9);
+                      const radius = 15;
+                      return <View key={i} style={{
+                        position:'absolute',width:4,height:4,borderRadius:2,
+                        left:19 + Math.cos(angle)*radius,
+                        top:19 + Math.sin(angle)*radius,
+                        backgroundColor: selected ? '#FFFFFF' : activeTab === 'Friends' ? colors[i % colors.length] : '#1C1C1E',
+                      }} />;
+                    })}
+                  </View>;
+                })()}
               </View>
             </Pressable>
           );
@@ -1206,9 +1212,12 @@ const selectedEvents = events
                 {selectedPersonalEvents.map(event => (
                   <Pressable
                     key={event.id}
-                    style={styles.eventCard}
+                    style={[styles.eventCard, lastSavedEventId === event.id && styles.justAddedCard]}
                     onPress={() => openPersonalEventActions(event)}
                   >
+                    {lastSavedEventId === event.id && (
+                      <Text style={styles.justAddedLabel}>JUST ADDED</Text>
+                    )}
                     <Text style={styles.eventCardTime}>
                       {event.is_all_day
                         ? 'All day'
@@ -1286,6 +1295,22 @@ const selectedEvents = events
 }
 
 const styles = StyleSheet.create({
+  justAddedCard: {
+    backgroundColor: '#F5F5F5',
+    borderLeftColor: '#E7E7E7',
+    borderBottomWidth: 0,
+  },
+  justAddedLabel: {
+    position: 'absolute',
+    top: 12,
+    right: 10,
+    color: '#171717',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0,
+    marginBottom: 0,
+  },
+
   titleRow: {
   flexDirection: 'row',
   alignItems: 'center',
@@ -1433,6 +1458,12 @@ addButtonText: {
     color: '#9999A3',
     fontSize: 14,
   },
+  savedBanner: {backgroundColor:'#F7F7F8',borderRadius:9,paddingHorizontal:12,paddingVertical:13,flexDirection:'row',alignItems:'center',gap:9,marginTop:12},
+  savedBannerText: {fontSize:12,color:'#171717'},
+  markerRing: {position:'absolute',width:42,height:42,top:0,left:0},
+  countRing: {position:'absolute',width:34,height:34,borderRadius:17,borderWidth:3,borderColor:'#FFFFFF',backgroundColor:'#1C1C1E',alignItems:'center',justifyContent:'center'},
+  selectedCountRing: {borderColor:'#FFFFFF'},
+  countRingText: {fontSize:10,fontWeight:'700',color:'#FFFFFF'},
   eventDot: {
   width: 4,
   height: 4,
