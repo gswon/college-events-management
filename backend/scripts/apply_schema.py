@@ -1,7 +1,7 @@
-"""NYUEventSchema.sql을 .env의 DATABASE_URL DB에 적용한다 (1회성).
+"""Apply NYUEventSchema.sql to the DB in .env's DATABASE_URL (one time, on an empty DB).
 
-SQL 파일은 데이터 팀 공유본이라 수정하지 않고, CREATE DATABASE / USE 문만 건너뛴다.
-실행: ~/miniconda3/envs/eventapp/bin/python scripts/apply_schema.py
+The SQL file is shared with the data team, so it is not edited here; only CREATE DATABASE / USE are skipped.
+Run: ~/miniconda3/envs/eventapp/bin/python scripts/apply_schema.py
 """
 import os
 import re
@@ -15,7 +15,7 @@ SCHEMA_PATH = os.path.join(BACKEND_DIR, "NYUEventSchema.sql")
 
 
 def split_statements(sql: str) -> list[str]:
-    # DDL 안의 문자열 리터럴에는 '--'가 없으므로 줄 단위 주석 제거로 충분하다.
+    # No string literal in the DDL contains '--', so stripping line comments is enough.
     no_comments = re.sub(r"--[^\n]*", "", sql)
     return [s.strip() for s in no_comments.split(";") if s.strip()]
 
@@ -30,7 +30,7 @@ def main() -> None:
     with engine.connect() as conn:
         existing = [r[0] for r in conn.execute(text("SHOW TABLES"))]
         if existing:
-            sys.exit(f"DB가 비어 있지 않습니다: {existing}. 중단합니다.")
+            sys.exit(f"The DB is not empty: {existing}. Stopping.")
 
         for stmt in statements:
             if re.match(r"(CREATE\s+DATABASE|USE)\b", stmt, re.IGNORECASE):

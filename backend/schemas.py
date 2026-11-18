@@ -13,9 +13,11 @@ from pydantic import (
     model_validator,
 )
 
+from models import SHARE_LEVELS
+
 
 def _to_utc_z(value: datetime) -> str:
-    # DB 값은 naive UTC. aware 값이 들어와도 UTC로 맞춘 뒤 'Z'로 내보낸다.
+    # DB values are naive UTC. An aware value is converted to UTC too, then written with 'Z'.
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -67,6 +69,25 @@ class EventListItem(ORMModel):
     status: Literal["ACTIVE", "CANCELLED"]
 
 
+class UserBrief(ORMModel):
+    id: int
+    display_name: str
+    profile_image_url: Optional[str]
+
+
+# INTERESTED or GOING. Saving an event puts it on the user's calendar.
+SaveStatus = Literal["INTERESTED", "GOING"]
+
+
+class EventSaveIn(BaseModel):
+    status: SaveStatus
+
+
+class EventSaveOut(BaseModel):
+    event_id: int
+    status: SaveStatus
+
+
 class EventDetail(EventListItem):
     organization: Optional[OrganizationSummary]
     description: Optional[str]
@@ -76,15 +97,24 @@ class EventDetail(EventListItem):
     registration_url: Optional[str]
     price_text: Optional[str]
     audience_text: Optional[str]
+    # Filled in only for a logged-in viewer; anonymous requests get null / 0 / [].
+    my_save_status: Optional[SaveStatus] = None
+    # Friends who are GOING and share events with me at DETAILS. Friends sharing BUSY are not counted.
+    friends_going_count: int = 0
+    friends_going: list[UserBrief] = []  # up to 3, by name
 
 
-class UserBrief(ORMModel):
-    id: int
-    display_name: str
-    profile_image_url: Optional[str]
+# How a user relates to me. REQUESTED = I sent a pending request, RECEIVED = they sent one to me.
+FriendStatus = Literal["NONE", "REQUESTED", "RECEIVED", "FRIENDS"]
 
 
-# --- 내 일정 (/entries) ---------------------------------------------------
+class UserSearchItem(UserBrief):
+    """A search result. Never includes the email, so a name search cannot collect addresses."""
+
+    friend_status: FriendStatus
+
+
+# --- My entries (/entries) -----------------------------------------------
 
 Title = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
 Location = Annotated[str, StringConstraints(max_length=255)]
@@ -104,7 +134,7 @@ class EntryCreate(BaseModel):
 
 
 class EntryUpdate(BaseModel):
-    """보낸 필드만 바꾼다. null은 비울 수 있는 필드에만 허용."""
+    """Only the fields sent are changed. null is allowed only for fields that can be empty."""
 
     title: Optional[Title] = None
     description: Optional[str] = None
@@ -120,7 +150,7 @@ class EntryUpdate(BaseModel):
         nulls = [f for f in ("title", "start_at", "end_at", "is_all_day")
                  if f in self.model_fields_set and getattr(self, f) is None]
         if nulls:
-            raise ValueError(f"null일 수 없습니다: {', '.join(nulls)}")
+            raise ValueError(f"Cannot be null: {', '.join(nulls)}")
         return self
 
 
@@ -138,7 +168,7 @@ class EntryOut(ORMModel):
     visibility_override: Optional[VisibilityOverride]
 
 
-# --- 캘린더 항목 (type만 보고 프론트가 색·아이콘을 고른다) ----------------
+# --- Calendar items (the app picks colors and icons from type alone) --------
 
 class EntryItem(BaseModel):
     type: Literal["CLASS", "PERSONAL"]
@@ -159,12 +189,12 @@ class EventItem(BaseModel):
     is_all_day: bool
     location: Optional[str]
     category: str
-    save_status: Literal["INTERESTED", "GOING"]
+    save_status: SaveStatus
     is_cancelled: bool
 
 
 class BusyItem(BaseModel):
-    """친구가 BUSY로 공유한 항목. 제목·장소·ID 없이 시간대만."""
+    """An item a friend shares as BUSY: only the time, no title, place or id."""
 
     type: Literal["BUSY"] = "BUSY"
     start_at: UTCDateTime
@@ -179,13 +209,13 @@ class UserCalendar(BaseModel):
     items: list[CalendarItem]
 
 
-# --- 친구 / 공유 -----------------------------------------------------------
+# --- Friends / sharing -----------------------------------------------------
 
-ShareLevel = Literal["HIDDEN", "BUSY", "DETAILS"]
+ShareLevel = Literal[SHARE_LEVELS]
 
 
 class SharingLevels(BaseModel):
-    # JSON 키는 class/personal/event. class는 파이썬 예약어라 alias로 받는다.
+    # JSON keys are class/personal/event. `class` is a Python keyword, hence the alias.
     class_: ShareLevel = Field(alias="class")
     personal: ShareLevel
     event: ShareLevel
@@ -199,7 +229,7 @@ class SharingUpdate(BaseModel):
 
 class FriendOut(BaseModel):
     user: UserBrief
-    sharing: SharingLevels  # 내가 이 친구에게 공유하는 수준
+    sharing: SharingLevels  # what I share with this friend
 
 
 class FriendRequestCreate(BaseModel):
@@ -214,29 +244,30 @@ class FriendRequestOut(ORMModel):
     created_at: UTCDateTime
 
 
-# --- 인증 (/auth, /users/me/password) -------------------------------------
+# --- Auth (/auth, /users/me/password) ------------------------------------
 
 Email = Annotated[
     str,
     StringConstraints(strip_whitespace=True, to_lower=True, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$"),
 ]
-# 로그인·현재 비밀번호는 규칙 없이 그대로 Supabase에 넘긴다. 72 = bcrypt 한계.
+# Login and current passwords go to Supabase as they are, with no rules. 72 = bcrypt's limit.
 Password = Annotated[str, StringConstraints(min_length=1, max_length=72)]
-# 새 비밀번호 규칙. Supabase 대시보드 설정(8자 이상, 소문자·대문자·숫자·특수문자 각 1개 이상)과 같아야 한다.
-# 재설정 코드는 한 번 쓰면 사라지므로, Supabase에서 거절되기 전에 여기서 먼저 걸러야 한다.
-# 문자 집합은 Supabase의 "Lowercase, uppercase letters, digits and symbols" 옵션과 같다.
+# New password rules. Must match the Supabase dashboard setting: 8+ characters with at least one
+# lowercase letter, uppercase letter, digit and symbol. A reset code works only once, so a weak
+# password must be caught here before Supabase rejects it. The character sets are those of Supabase's
+# "Lowercase, uppercase letters, digits and symbols" option.
 _PASSWORD_CHAR_SETS = (
-    ("소문자", string.ascii_lowercase),
-    ("대문자", string.ascii_uppercase),
-    ("숫자", string.digits),
-    ("특수문자", "!@#$%^&*()_+-=[]{};'\\:\"|<>?,./`~"),
+    ("a lowercase letter", string.ascii_lowercase),
+    ("an uppercase letter", string.ascii_uppercase),
+    ("a number", string.digits),
+    ("a symbol", "!@#$%^&*()_+-=[]{};'\\:\"|<>?,./`~"),
 )
 
 
 def _check_password_chars(value: str) -> str:
     missing = [name for name, chars in _PASSWORD_CHAR_SETS if not any(c in chars for c in value)]
     if missing:
-        raise ValueError(f"비밀번호에 {', '.join(missing)}를 포함해야 합니다.")
+        raise ValueError(f"Password must include {', '.join(missing)}.")
     return value
 
 
@@ -252,7 +283,7 @@ class SignupIn(BaseModel):
 
 
 class SignupOut(BaseModel):
-    email: str  # 인증 코드를 보낸 주소
+    email: str  # where the verification code was sent
 
 
 class EmailIn(BaseModel):
@@ -291,11 +322,28 @@ class MeOut(ORMModel):
     profile_image_url: Optional[str]
 
 
+# Up to 500 characters: the size of users.profile_image_url.
+ImageUrl = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500, pattern=r"^https?://\S+$")]
+
+
+class MeUpdate(BaseModel):
+    """Only the fields sent are changed. Send profile_image_url: null to remove the photo."""
+
+    display_name: Optional[DisplayName] = None
+    profile_image_url: Optional[ImageUrl] = None
+
+    @model_validator(mode="after")
+    def _reject_null_name(self):
+        if "display_name" in self.model_fields_set and self.display_name is None:
+            raise ValueError("Cannot be null: display_name")
+        return self
+
+
 class AuthSession(BaseModel):
-    """앱은 두 토큰을 SecureStore에 저장하고, API 호출 때 Authorization: Bearer <access_token>."""
+    """The app keeps both tokens in SecureStore and calls the API with Authorization: Bearer <access_token>."""
 
     access_token: str
     refresh_token: str
     token_type: Literal["bearer"] = "bearer"
-    expires_in: int  # access_token 유효 시간(초)
+    expires_in: int  # access_token lifetime in seconds
     user: MeOut

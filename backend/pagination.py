@@ -1,4 +1,4 @@
-"""(start_at, id) keyset 페이지네이션용 opaque cursor."""
+"""Opaque cursors for keyset pagination on (start_at, id)."""
 import base64
 import binascii
 from datetime import datetime
@@ -17,4 +17,4 @@ def decode_cursor(cursor: str) -> tuple[datetime, int]:
         start_str, id_str = base64.urlsafe_b64decode(padded).decode().split("|")
         return datetime.fromisoformat(start_str), int(id_str)
     except (binascii.Error, UnicodeDecodeError, ValueError):
-        raise APIError(400, "INVALID_CURSOR", "cursor 값이 올바르지 않습니다.")
+        raise APIError(400, "INVALID_CURSOR", "Invalid cursor.")

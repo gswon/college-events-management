@@ -1,4 +1,4 @@
-# 스키마 원본은 NYUEventSchema.sql. 여기 모델은 그 DDL에 맞춘 매핑일 뿐 테이블을 만들지 않는다.
+# The schema source of truth is NYUEventSchema.sql. These models only map that DDL; they never create tables.
 from datetime import datetime
 from typing import Optional
 
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
 
+# Share levels from least to most visible. Order matters: routers/calendar.py ranks levels by it.
 SHARE_LEVELS = ("HIDDEN", "BUSY", "DETAILS")
 
 
@@ -15,15 +16,15 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True)
-    # Supabase 유저 UUID (migrations/001). 첫 로그인 때 채워진다.
+    # Supabase user UUID (migrations/001). Set on the first login.
     auth_uid: Mapped[Optional[str]] = mapped_column(CHAR(36), unique=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
-    # 비밀번호는 Supabase가 가지고 있다. Supabase 이전에 만든 행에만 값이 남아 있다.
+    # Supabase holds passwords. Only rows created before Supabase still have a value here.
     password_hash: Mapped[Optional[str]] = mapped_column(String(255))
     display_name: Mapped[str] = mapped_column(String(50))
     profile_image_url: Mapped[Optional[str]] = mapped_column(String(500))
     role: Mapped[str] = mapped_column(Enum("USER", "ADMIN"), default="USER")
-    # 새 친구가 생길 때 friendships 행으로 복사되는 기본 공유 수준
+    # Default share levels, copied into the friendships row when a new friendship starts.
     default_share_class: Mapped[str] = mapped_column(Enum(*SHARE_LEVELS), default="DETAILS")
     default_share_personal: Mapped[str] = mapped_column(Enum(*SHARE_LEVELS), default="BUSY")
     default_share_event: Mapped[str] = mapped_column(Enum(*SHARE_LEVELS), default="DETAILS")
@@ -122,7 +123,7 @@ class CalendarEntry(Base):
     id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True)
     user_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"))
     kind: Mapped[str] = mapped_column(Enum("CLASS", "PERSONAL"))
-    # schedule_imports FK. 시간표 import API를 만들 때 그 모델과 relationship을 붙인다.
+    # FK to schedule_imports. Add that model and a relationship when the timetable import API is built.
     schedule_import_id: Mapped[Optional[int]] = mapped_column(BIGINT(unsigned=True))
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[Optional[str]] = mapped_column(Text)
@@ -133,7 +134,7 @@ class CalendarEntry(Base):
     color: Mapped[Optional[str]] = mapped_column(CHAR(7))
     course_code: Mapped[Optional[str]] = mapped_column(String(50))
     ics_uid: Mapped[Optional[str]] = mapped_column(String(255))
-    # 친구 공유 수준을 이 항목만 더 낮춘다. NULL = 친구 설정 그대로
+    # Lowers the friends' share level for this one entry only. NULL = use the friend setting.
     visibility_override: Mapped[Optional[str]] = mapped_column(Enum("HIDDEN", "BUSY"))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
     updated_at: Mapped[datetime] = mapped_column(
@@ -158,7 +159,7 @@ class FriendRequest(Base):
 
 
 class Friendship(Base):
-    """친구 1쌍 = 2행. 행 (user_id=A, friend_id=B) 는 "A가 B에게 공유하는 수준"."""
+    """One friendship = two rows. Row (user_id=A, friend_id=B) holds what A shares with B."""
 
     __tablename__ = "friendships"
 

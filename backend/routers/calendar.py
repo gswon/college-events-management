@@ -1,89 +1,134 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from pydantic import AwareDatetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, contains_eager, joinedload
 
 import models
 from auth import user_dependency
-from database import get_db
+from database import db_dependency
 from errors import APIError
 from schemas import BusyItem, CalendarItem, EntryItem, EventItem, UserCalendar
 from timeutil import utc_range
 
 router = APIRouter(tags=["calendar"])
 
-db_dependency = Annotated[Session, Depends(get_db)]
-StartQuery = Annotated[AwareDatetime, Query(description="기간 시작 (ISO 8601, 오프셋 필수)")]
-EndQuery = Annotated[AwareDatetime, Query(description="기간 끝 (ISO 8601, 오프셋 필수)")]
+StartQuery = Annotated[AwareDatetime, Query(description="Range start (ISO 8601 with a UTC offset)")]
+EndQuery = Annotated[AwareDatetime, Query(description="Range end (ISO 8601 with a UTC offset)")]
 
 KINDS = ("class", "personal", "event")
 OWNER_LEVELS = dict.fromkeys(KINDS, "DETAILS")
-LEVEL_RANK = {"HIDDEN": 0, "BUSY": 1, "DETAILS": 2}
+LEVEL_RANK = {level: rank for rank, level in enumerate(models.SHARE_LEVELS)}  # higher = more visible
 MAX_OVERLAY_USERS = 10
 
+# owner id -> {"class" | "personal" | "event": share level}. A missing kind means HIDDEN.
+LevelsByOwner = dict[int, dict[str, str]]
 
-def _collect_items(
-    db: Session, owner_id: int, start: datetime, end: datetime, levels: dict[str, str], is_owner: bool
-) -> list:
-    """owner의 기간 내 수업·개인 일정·저장한 이벤트를 캘린더 항목으로 만든다.
 
-    levels: 종류(class/personal/event)별 공유 수준, 빠진 종류는 HIDDEN.
-    친구가 볼 때는 일정별 visibility_override로 수준을 더 낮출 수만 있다.
+def _levels_by_owner(db: Session, owner_ids: list[int], viewer: models.User) -> LevelsByOwner:
+    """Share levels each owner gives the viewer, in owner_ids order. One query for all friends.
+
+    Raises 403 before anything is read if any owner is not the viewer's friend.
     """
-    items = []
-
-    E = models.CalendarEntry
-    entry_kinds = [k.upper() for k in ("class", "personal") if levels.get(k, "HIDDEN") != "HIDDEN"]
-    if entry_kinds:
-        entries = db.scalars(
-            select(E).where(E.user_id == owner_id, E.kind.in_(entry_kinds), E.start_at < end, E.end_at > start)
+    others = [owner_id for owner_id in owner_ids if owner_id != viewer.id]
+    friend_levels = {}
+    if others:
+        Friendship = models.Friendship
+        # Row (user_id=owner, friend_id=viewer) holds what the owner shares with the viewer.
+        rows = db.scalars(
+            select(Friendship).where(Friendship.user_id.in_(others), Friendship.friend_id == viewer.id)
         )
-        for e in entries:
-            level = levels[e.kind.lower()]
-            if not is_owner and e.visibility_override is not None:
-                level = min(level, e.visibility_override, key=LEVEL_RANK.get)
-            if level == "DETAILS":
-                items.append(EntryItem(
-                    type=e.kind, id=e.id, title=e.title, start_at=e.start_at, end_at=e.end_at,
-                    is_all_day=e.is_all_day, location=e.location,
-                ))
-            elif level == "BUSY":
-                items.append(BusyItem(start_at=e.start_at, end_at=e.end_at))
+        friend_levels = {row.user_id: row.levels() for row in rows}
+        if len(friend_levels) != len(others):
+            raise APIError(403, "NOT_FRIENDS", "You can only view a friend's calendar.")
+    return {
+        owner_id: OWNER_LEVELS if owner_id == viewer.id else friend_levels[owner_id]
+        for owner_id in owner_ids
+    }
 
-    event_level = levels.get("event", "HIDDEN")
-    if event_level != "HIDDEN":
-        S, Ev = models.EventSave, models.Event
-        saves = db.scalars(
-            select(S)
-            .join(S.event)
-            .options(contains_eager(S.event).joinedload(Ev.category))
-            .where(S.user_id == owner_id, Ev.status != "HIDDEN", Ev.start_at < end, Ev.end_at > start)
-        )
-        for s in saves:
-            ev = s.event
-            if event_level == "DETAILS":
-                items.append(EventItem(
-                    id=ev.id, title=ev.title, start_at=ev.start_at, end_at=ev.end_at, is_all_day=ev.is_all_day,
-                    location=ev.location_name, category=ev.category.code, save_status=s.status,
-                    is_cancelled=ev.status == "CANCELLED",
-                ))
-            elif ev.status == "ACTIVE":  # 취소된 이벤트는 바쁜 시간으로 치지 않는다.
-                items.append(BusyItem(start_at=ev.start_at, end_at=ev.end_at))
 
-    items.sort(key=lambda item: (item.start_at, item.end_at))
+def _entry_items(
+    db: Session, levels: LevelsByOwner, start: datetime, end: datetime, viewer_id: int
+) -> dict[int, list]:
+    """Classes and personal entries in the range, as calendar items per owner."""
+    visible_kinds = {
+        owner_id: {kind.upper() for kind in ("class", "personal") if owner_levels.get(kind, "HIDDEN") != "HIDDEN"}
+        for owner_id, owner_levels in levels.items()
+    }
+    owner_ids = [owner_id for owner_id, kinds in visible_kinds.items() if kinds]
+    if not owner_ids:
+        return {}
+
+    Entry = models.CalendarEntry
+    entries = db.scalars(
+        select(Entry).where(Entry.user_id.in_(owner_ids), Entry.start_at < end, Entry.end_at > start)
+    )
+    items: dict[int, list] = {}
+    for entry in entries:
+        if entry.kind not in visible_kinds[entry.user_id]:
+            continue
+        level = levels[entry.user_id][entry.kind.lower()]
+        # A friend's per-entry override can only lower the level, and never applies to the owner.
+        if entry.user_id != viewer_id and entry.visibility_override is not None:
+            level = min(level, entry.visibility_override, key=LEVEL_RANK.get)
+        if level == "DETAILS":
+            item = EntryItem(
+                type=entry.kind, id=entry.id, title=entry.title, start_at=entry.start_at, end_at=entry.end_at,
+                is_all_day=entry.is_all_day, location=entry.location,
+            )
+        elif level == "BUSY":
+            item = BusyItem(start_at=entry.start_at, end_at=entry.end_at)
+        else:
+            continue
+        items.setdefault(entry.user_id, []).append(item)
     return items
 
 
-def _levels_for(db: Session, owner_id: int, viewer: models.User) -> dict[str, str]:
-    if owner_id == viewer.id:
-        return OWNER_LEVELS
-    row = db.get(models.Friendship, (owner_id, viewer.id))  # owner가 viewer에게 공유하는 수준
-    if row is None:
-        raise APIError(403, "NOT_FRIENDS", "친구의 캘린더만 볼 수 있습니다.")
-    return row.levels()
+def _event_items(db: Session, levels: LevelsByOwner, start: datetime, end: datetime) -> dict[int, list]:
+    """Saved school events in the range, as calendar items per owner."""
+    owner_ids = [
+        owner_id for owner_id, owner_levels in levels.items() if owner_levels.get("event", "HIDDEN") != "HIDDEN"
+    ]
+    if not owner_ids:
+        return {}
+
+    Save, Event = models.EventSave, models.Event
+    saves = db.scalars(
+        select(Save)
+        .join(Save.event)
+        .options(contains_eager(Save.event).joinedload(Event.category))
+        .where(Save.user_id.in_(owner_ids), Event.status != "HIDDEN", Event.start_at < end, Event.end_at > start)
+    )
+    items: dict[int, list] = {}
+    for save in saves:
+        event = save.event
+        if levels[save.user_id]["event"] == "DETAILS":
+            item = EventItem(
+                id=event.id, title=event.title, start_at=event.start_at, end_at=event.end_at,
+                is_all_day=event.is_all_day, location=event.location_name, category=event.category.code,
+                save_status=save.status, is_cancelled=event.status == "CANCELLED",
+            )
+        elif event.status == "ACTIVE":  # A cancelled event does not make the owner busy.
+            item = BusyItem(start_at=event.start_at, end_at=event.end_at)
+        else:
+            continue
+        items.setdefault(save.user_id, []).append(item)
+    return items
+
+
+def _calendars(
+    db: Session, levels: LevelsByOwner, start: datetime, end: datetime, viewer_id: int
+) -> dict[int, list]:
+    """Each owner's calendar items, sorted by time. Two queries no matter how many owners."""
+    calendars = {owner_id: [] for owner_id in levels}
+    for items_by_owner in (_entry_items(db, levels, start, end, viewer_id), _event_items(db, levels, start, end)):
+        for owner_id, items in items_by_owner.items():
+            calendars[owner_id].extend(items)
+    for items in calendars.values():
+        items.sort(key=lambda item: (item.start_at, item.end_at))
+    return calendars
 
 
 @router.get("/calendar", response_model=list[CalendarItem])
@@ -92,27 +137,28 @@ def my_calendar(
     user: user_dependency,
     start: StartQuery,
     end: EndQuery,
-    include: Annotated[str, Query(description="class,personal,event 중 쉼표로 구분")] = ",".join(KINDS),
+    include: Annotated[str, Query(description="Comma-separated: class, personal, event")] = ",".join(KINDS),
 ):
     start_utc, end_utc = utc_range(start, end)
     kinds = {k.strip() for k in include.split(",") if k.strip()}
     if not kinds or not kinds <= set(KINDS):
-        raise APIError(400, "INVALID_INCLUDE", "include는 class, personal, event 중에서 골라야 합니다.")
-    return _collect_items(db, user.id, start_utc, end_utc, dict.fromkeys(kinds, "DETAILS"), is_owner=True)
+        raise APIError(400, "INVALID_INCLUDE", "include must list only class, personal, event.")
+    levels = {user.id: dict.fromkeys(kinds, "DETAILS")}
+    return _calendars(db, levels, start_utc, end_utc, user.id)[user.id]
 
 
 @router.get("/users/{user_id}/calendar", response_model=list[CalendarItem])
 def user_calendar(user_id: int, db: db_dependency, user: user_dependency, start: StartQuery, end: EndQuery):
     start_utc, end_utc = utc_range(start, end)
-    levels = _levels_for(db, user_id, user)
-    return _collect_items(db, user_id, start_utc, end_utc, levels, is_owner=user_id == user.id)
+    levels = _levels_by_owner(db, [user_id], user)
+    return _calendars(db, levels, start_utc, end_utc, user.id)[user_id]
 
 
 @router.get("/calendar/overlay", response_model=list[UserCalendar])
 def calendar_overlay(
     db: db_dependency,
     user: user_dependency,
-    user_ids: Annotated[str, Query(description="친구 id를 쉼표로 구분, 예: 12,31")],
+    user_ids: Annotated[str, Query(description="Comma-separated friend ids, e.g. 12,31")],
     start: StartQuery,
     end: EndQuery,
 ):
@@ -120,14 +166,11 @@ def calendar_overlay(
     try:
         friend_ids = [int(x) for x in user_ids.split(",") if x.strip()]
     except ValueError:
-        raise APIError(400, "INVALID_USER_IDS", "user_ids는 쉼표로 구분한 숫자여야 합니다.")
-    ids = list(dict.fromkeys([user.id, *friend_ids]))  # 나를 맨 앞에, 중복 제거
+        raise APIError(400, "INVALID_USER_IDS", "user_ids must be comma-separated numbers.")
+    ids = list(dict.fromkeys([user.id, *friend_ids]))  # Me first, duplicates removed
     if len(ids) - 1 > MAX_OVERLAY_USERS:
-        raise APIError(400, "INVALID_USER_IDS", f"친구는 최대 {MAX_OVERLAY_USERS}명까지 겹쳐 볼 수 있습니다.")
+        raise APIError(400, "INVALID_USER_IDS", f"You can overlay at most {MAX_OVERLAY_USERS} friends.")
 
-    # 친구가 아닌 id가 하나라도 있으면 아무것도 조회하기 전에 403.
-    levels = {uid: _levels_for(db, uid, user) for uid in ids}
-    return [
-        {"user_id": uid, "items": _collect_items(db, uid, start_utc, end_utc, lv, is_owner=uid == user.id)}
-        for uid, lv in levels.items()
-    ]
+    levels = _levels_by_owner(db, ids, user)
+    calendars = _calendars(db, levels, start_utc, end_utc, user.id)
+    return [{"user_id": owner_id, "items": calendars[owner_id]} for owner_id in ids]

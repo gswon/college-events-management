@@ -1,11 +1,11 @@
-"""Supabase Auth(GoTrue) REST 호출.
+"""Calls to the Supabase Auth (GoTrue) REST API.
 
-비밀번호·세션·인증 메일은 Supabase가 관리한다. 여기서는 요청을 넘기기만 하고
-비밀번호는 로그·DB 어디에도 남기지 않는다. 필요한 키는 backend/.env의
-SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY 두 개다 (secret 키는 쓰지 않는다).
+Supabase keeps passwords, sessions and verification emails. This module only forwards requests
+and never logs or stores a password. It needs two keys from backend/.env: SUPABASE_URL and
+SUPABASE_PUBLISHABLE_KEY (no secret key).
 
-실패하면 SupabaseAuthError(code=Supabase error_code)를 던지고,
-API 에러 코드로 바꾸는 건 routers/account.py가 엔드포인트마다 한다.
+On failure it raises SupabaseAuthError (code = Supabase's error code); routers/account.py turns
+that into an API error for each endpoint.
 """
 import os
 from typing import Any, Optional
@@ -18,8 +18,19 @@ load_dotenv()
 SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
 SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY") or ""
 TIMEOUT_SECONDS = 10.0
-# 에러 응답 형식을 고정하는 헤더. 이 버전에서는 {"code": "<에러 코드>", "message": ...}로 온다.
+# Pins the error response format. With this version errors look like {"code": "<error code>", "message": ...}.
 API_VERSION = "2024-01-01"
+
+
+_http_client: Optional[httpx.Client] = None
+
+
+def _http() -> httpx.Client:
+    # One shared client keeps HTTPS connections open, so each call skips a new TLS handshake.
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.Client(timeout=TIMEOUT_SECONDS)
+    return _http_client
 
 
 class SupabaseAuthError(Exception):
@@ -32,13 +43,13 @@ class SupabaseAuthError(Exception):
 
 def auth_url() -> str:
     if not SUPABASE_URL:
-        raise RuntimeError("SUPABASE_URL이 설정되지 않았습니다 (backend/.env).")
+        raise RuntimeError("SUPABASE_URL is not set (backend/.env).")
     return f"{SUPABASE_URL}/auth/v1"
 
 
 def api_headers() -> dict[str, str]:
     if not SUPABASE_PUBLISHABLE_KEY:
-        raise RuntimeError("SUPABASE_PUBLISHABLE_KEY가 설정되지 않았습니다 (backend/.env).")
+        raise RuntimeError("SUPABASE_PUBLISHABLE_KEY is not set (backend/.env).")
     return {"apikey": SUPABASE_PUBLISHABLE_KEY, "X-Supabase-Api-Version": API_VERSION}
 
 
@@ -49,8 +60,8 @@ def error_from_response(response: httpx.Response) -> SupabaseAuthError:
         body = None
     if not isinstance(body, dict):
         body = {}
-    # API_VERSION 헤더를 보내면 code(문자열)/message, 안 보내면 code(숫자)+error_code/msg,
-    # 아주 옛 /token 형식은 error/error_description. 셋 다 받아 준다.
+    # With the API_VERSION header: code (string) + message. Without it: code (number) + error_code + msg.
+    # The oldest /token format: error + error_description. Accept all three.
     version_code = body.get("code") if isinstance(body.get("code"), str) else None
     code = body.get("error_code") or version_code or body.get("error") or "unknown"
     message = body.get("msg") or body.get("error_description") or body.get("message") or response.text
@@ -69,9 +80,7 @@ def _request(
     if access_token:
         headers["Authorization"] = f"Bearer {access_token}"
     try:
-        response = httpx.request(
-            method, auth_url() + path, json=json, params=params, headers=headers, timeout=TIMEOUT_SECONDS
-        )
+        response = _http().request(method, auth_url() + path, json=json, params=params, headers=headers)
     except httpx.HTTPError as exc:
         raise SupabaseAuthError(503, "unavailable", str(exc)) from exc
     if response.status_code >= 400:
@@ -80,14 +89,14 @@ def _request(
 
 
 def sign_up(email: str, password: str, display_name: str) -> dict[str, Any]:
-    """Confirm email이 켜져 있으면 세션 없이 유저만 오고, 인증 코드 메일이 나간다."""
+    """With Confirm email on, this returns the user without a session and emails a verification code."""
     return _request(
         "POST", "/signup", json={"email": email, "password": password, "data": {"display_name": display_name}}
     )
 
 
 def verify_otp(email: str, code: str, otp_type: str) -> dict[str, Any]:
-    """메일로 받은 코드 확인. otp_type: 'signup'(가입 인증) | 'recovery'(비밀번호 재설정). 세션을 돌려준다."""
+    """Check an emailed code. otp_type: 'signup' (verify email) | 'recovery' (reset password). Returns a session."""
     return _request("POST", "/verify", json={"type": otp_type, "email": email, "token": code})
 
 
@@ -104,7 +113,7 @@ def refresh_session(refresh_token: str) -> dict[str, Any]:
 
 
 def sign_out(access_token: str, scope: str) -> None:
-    """scope: 'local'(이 세션) | 'others'(이 세션 빼고 전부) | 'global'(전부)."""
+    """scope: 'local' (this session) | 'others' (all but this one) | 'global' (all of them)."""
     _request("POST", "/logout", params={"scope": scope}, access_token=access_token)
 
 
@@ -113,5 +122,5 @@ def update_password(access_token: str, new_password: str) -> None:
 
 
 def send_password_reset(email: str) -> None:
-    """가입 안 된 이메일이어도 Supabase는 성공으로 응답한다."""
+    """Supabase answers success even for an email with no account."""
     _request("POST", "/recover", json={"email": email})

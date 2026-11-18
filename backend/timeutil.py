@@ -1,4 +1,4 @@
-"""요청 시각(오프셋 포함) → DB용 naive UTC 변환, 기간 조회 검사."""
+"""Convert request times (with offsets) to the naive UTC the DB stores, and check query ranges."""
 from datetime import datetime, timedelta, timezone
 
 from errors import APIError
@@ -15,9 +15,11 @@ def utc_now() -> datetime:
 
 
 def utc_range(start: datetime, end: datetime) -> tuple[datetime, datetime]:
+    # A query range must have end > start: an empty range cannot overlap anything.
+    # (A calendar entry may end when it starts; see routers/entries.py.)
     start_utc, end_utc = to_utc_naive(start), to_utc_naive(end)
     if end_utc <= start_utc:
-        raise APIError(400, "INVALID_RANGE", "end는 start보다 뒤여야 합니다.")
+        raise APIError(400, "INVALID_RANGE", "end must be after start.")
     if end_utc - start_utc > MAX_RANGE:
-        raise APIError(400, "INVALID_RANGE", "조회 기간은 최대 92일입니다.")
+        raise APIError(400, "INVALID_RANGE", "The range can be at most 92 days.")
     return start_utc, end_utc

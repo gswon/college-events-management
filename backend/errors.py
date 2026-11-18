@@ -1,4 +1,4 @@
-"""모든 에러 응답을 { "error": { "code": ..., "message": ... } } 형식으로 통일한다."""
+"""Every error response has the shape { "error": { "code": ..., "message": ... } }."""
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -45,8 +45,9 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
 
 
 async def _unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    # 내부 정보가 새지 않게 메시지는 고정한다. Starlette가 응답 후 예외를 다시 던지므로 traceback은 서버 로그에 남는다.
-    return _error_response(500, "INTERNAL_ERROR", "서버 오류가 발생했습니다.")
+    # A fixed message so internal details never leak. Starlette re-raises after responding,
+    # so the traceback still reaches the server log.
+    return _error_response(500, "INTERNAL_ERROR", "Something went wrong on the server.")
 
 
 def register_error_handlers(app: FastAPI) -> None:

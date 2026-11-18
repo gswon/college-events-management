@@ -1,7 +1,7 @@
-"""테스트는 .env의 DB를 쓰지만 데이터를 남기지 않는다.
+"""Tests use the DB in .env (the shared team DB) but leave no data behind.
 
-- 기본: 커넥션 트랜잭션 안에서 넣고 테스트가 끝나면 롤백.
-- FULLTEXT 검색: InnoDB는 커밋된 행만 인덱싱하므로 커밋 후 source='PYTEST' 행을 지운다.
+- Default: rows are written inside a connection transaction that is rolled back after each test.
+- FULLTEXT search: InnoDB only indexes committed rows, so those tests commit, then delete source='PYTEST' rows.
 """
 import uuid
 from datetime import datetime
@@ -14,7 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 import models
-from auth import get_current_user
+from auth import get_current_user, get_optional_user
 from database import SessionLocal, engine, get_db
 from errors import APIError
 from main import app
@@ -54,26 +54,50 @@ def _user_from_header(
     db: Annotated[Session, Depends(get_db)],
     x_user_id: Annotated[Optional[int], Header()] = None,
 ) -> models.User:
-    """테스트용 get_current_user. 토큰 대신 X-User-Id 헤더의 유저를 현재 유저로 본다."""
+    """get_current_user for tests: the user in the X-User-Id header is the current user, no token needed."""
     user = db.get(models.User, x_user_id) if x_user_id is not None else None
     if user is None:
-        raise APIError(401, "AUTH_REQUIRED", "로그인이 필요합니다.")
+        raise APIError(401, "AUTH_REQUIRED", "Please log in.")
     return user
+
+
+def _optional_user_from_header(
+    db: Annotated[Session, Depends(get_db)],
+    x_user_id: Annotated[Optional[int], Header()] = None,
+) -> Optional[models.User]:
+    """get_optional_user for tests: no X-User-Id header means an anonymous request."""
+    return None if x_user_id is None else _user_from_header(db, x_user_id)
 
 
 @pytest.fixture
 def client():
     app.dependency_overrides[get_current_user] = _user_from_header
+    app.dependency_overrides[get_optional_user] = _optional_user_from_header
     try:
         yield TestClient(app)
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_optional_user, None)
 
 
 @pytest.fixture
 def auth_client():
-    """get_current_user를 바꾸지 않은 클라이언트. 실제 토큰 검증을 테스트할 때 쓴다."""
+    """A client with the real get_current_user, for tests of token verification."""
     return TestClient(app)
+
+
+def at(day: int, hour: int = 0, minute: int = 0) -> datetime:
+    """A time on 2099-01-<day>. Tests use far-future dates so they never overlap real data."""
+    return datetime(2099, 1, day, hour, minute)
+
+
+def assert_error(response, status: int, code: str) -> None:
+    """The response is the API's standard error body with this status and error code."""
+    assert response.status_code == status, response.text
+    body = response.json()
+    assert set(body) == {"error"}
+    assert body["error"]["code"] == code
+    assert body["error"]["message"]
 
 
 def category_id(session: Session, code: str) -> int:
@@ -118,7 +142,7 @@ def make_user(session: Session, name: str = "Test User", **fields) -> models.Use
 
 
 def as_user(user: models.User) -> dict:
-    """client 픽스처용 인증 헤더 (_user_from_header가 읽는다)."""
+    """Auth header for the client fixture (read by _user_from_header)."""
     return {"X-User-Id": str(user.id)}
 
 

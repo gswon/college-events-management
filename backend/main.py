@@ -2,18 +2,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from errors import register_error_handlers
-from routers import account, calendar, categories, entries, events, friends
+from routers import account, calendar, categories, entries, events, friends, users
 
 API_PREFIX = "/api/v1"
 
 app = FastAPI(title="NYU Event Calendar API")
 
-# Expo web 개발용. 인증(쿠키)을 붙일 때 origin을 명시적으로 제한한다.
+# Any origin is allowed for Expo web development. Auth uses Bearer tokens, not cookies,
+# so no session rides along with cross-site requests. List the real app origins before deploying.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 register_error_handlers(app)
 
 app.include_router(account.router, prefix=API_PREFIX)
+app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(events.router, prefix=API_PREFIX)
 app.include_router(categories.router, prefix=API_PREFIX)
 app.include_router(entries.router, prefix=API_PREFIX)

@@ -1,6 +1,5 @@
 import models
-from tests.conftest import as_user, make_user
-from tests.test_events import assert_error
+from tests.conftest import as_user, assert_error, make_user
 
 REQUESTS = "/api/v1/friends/requests"
 
@@ -21,7 +20,7 @@ def friend_ids(client, user) -> list[int]:
     return [f["user"]["id"] for f in client.get("/api/v1/friends", headers=as_user(user)).json()]
 
 
-# --- 요청 → 수락 ------------------------------------------------------------
+# --- Request -> accept --------------------------------------------------------
 
 def test_request_accept_flow(client, db):
     alice = make_user(db, "Alice", default_share_personal="HIDDEN")
@@ -44,7 +43,7 @@ def test_request_accept_flow(client, db):
     assert response.json()["status"] == "ACCEPTED"
     assert client.get(REQUESTS, headers=as_user(bob)).json() == []
 
-    # 친구 행 2개, 각자 자기 기본 공유 수준이 복사된다.
+    # Two friendship rows, each with its owner's default share levels.
     assert client.get("/api/v1/friends", headers=as_user(alice)).json() == [{
         "user": {"id": bob.id, "display_name": "Bob", "profile_image_url": None},
         "sharing": {"class": "DETAILS", "personal": "HIDDEN", "event": "DETAILS"},
@@ -72,7 +71,7 @@ def test_request_errors(client, db):
 
     request_id = send(client, alice, bob).json()["id"]
     assert_error(send(client, alice, bob), 409, "REQUEST_ALREADY_SENT")
-    # 받은 사람만 수락·거절, 보낸 사람만 취소
+    # Only the receiver can accept or decline; only the sender can cancel.
     assert_error(accept(client, request_id, alice), 404, "REQUEST_NOT_FOUND")
     assert_error(client.delete(f"{REQUESTS}/{request_id}", headers=as_user(bob)), 404, "REQUEST_NOT_FOUND")
 
@@ -90,7 +89,7 @@ def test_decline_cancel_and_resend(client, db):
     assert declined.status_code == 200
     assert declined.json()["status"] == "DECLINED"
 
-    resent = send(client, alice, bob).json()  # (from, to) 행을 재사용해 PENDING으로
+    resent = send(client, alice, bob).json()  # reuses the (from, to) row, back to PENDING
     assert (resent["id"], resent["status"]) == (request_id, "PENDING")
 
     assert client.delete(f"{REQUESTS}/{request_id}", headers=as_user(alice)).status_code == 204
@@ -99,7 +98,7 @@ def test_decline_cancel_and_resend(client, db):
     assert friend_ids(client, alice) == []
 
 
-# --- 공유 수준 / 친구 끊기 ---------------------------------------------------
+# --- Share levels / unfriend -------------------------------------------------
 
 def test_sharing_settings(client, db):
     alice, bob, carol = make_user(db), make_user(db), make_user(db)
@@ -110,7 +109,7 @@ def test_sharing_settings(client, db):
     response = client.patch(url, headers=as_user(alice), json={"class": "BUSY", "event": "HIDDEN"})
     assert response.status_code == 200, response.text
     assert response.json() == {"class": "BUSY", "personal": "BUSY", "event": "HIDDEN"}
-    # 반대 방향(bob → alice) 행은 그대로
+    # The reverse row (bob -> alice) is unchanged.
     assert client.get(f"/api/v1/friends/{alice.id}/sharing", headers=as_user(bob)).json() == {
         "class": "DETAILS", "personal": "BUSY", "event": "DETAILS"
     }
@@ -126,4 +125,4 @@ def test_unfriend(client, db):
     assert client.delete(f"/api/v1/friends/{alice.id}", headers=as_user(bob)).status_code == 204
     assert friend_ids(client, alice) == [] and friend_ids(client, bob) == []
     assert_error(client.delete(f"/api/v1/friends/{alice.id}", headers=as_user(bob)), 404, "FRIEND_NOT_FOUND")
-    assert send(client, alice, bob).json()["status"] == "PENDING"  # 다시 요청 가능
+    assert send(client, alice, bob).json()["status"] == "PENDING"  # can send a request again

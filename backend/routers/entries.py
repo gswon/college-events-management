@@ -1,34 +1,32 @@
 from datetime import datetime
-from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from sqlalchemy.orm import Session
 
 import models
 from auth import user_dependency
-from database import get_db
+from database import db_dependency
 from errors import APIError
 from schemas import EntryCreate, EntryOut, EntryUpdate
 from timeutil import to_utc_naive
 
 router = APIRouter(tags=["entries"])
 
-db_dependency = Annotated[Session, Depends(get_db)]
-
-# 수업(CLASS)은 시간표 import가 관리하므로 이 필드만 직접 고칠 수 있다.
+# Classes are managed by the timetable import, so only these fields can be edited by hand.
 CLASS_EDITABLE = {"description", "visibility_override"}
 
 
 def _check_times(start_at: datetime, end_at: datetime) -> None:
+    # An entry may end exactly when it starts (a point in time). Query ranges are stricter: see timeutil.utc_range.
     if end_at < start_at:
-        raise APIError(400, "INVALID_RANGE", "end_at은 start_at보다 앞일 수 없습니다.")
+        raise APIError(400, "INVALID_RANGE", "end_at cannot be before start_at.")
 
 
 def _own_entry(db: Session, user: models.User, entry_id: int) -> models.CalendarEntry:
     entry = db.get(models.CalendarEntry, entry_id)
-    # 남의 일정은 있는지 여부도 알리지 않는다.
+    # Never reveal whether someone else's entry exists.
     if entry is None or entry.user_id != user.id:
-        raise APIError(404, "ENTRY_NOT_FOUND", "일정을 찾을 수 없습니다.")
+        raise APIError(404, "ENTRY_NOT_FOUND", "Entry not found.")
     return entry
 
 
@@ -57,7 +55,7 @@ def update_entry(entry_id: int, body: EntryUpdate, db: db_dependency, user: user
         if locked:
             raise APIError(
                 400, "FIELD_NOT_EDITABLE",
-                f"수업 일정은 description, visibility_override만 수정할 수 있습니다: {', '.join(locked)}",
+                f"Only description and visibility_override can be changed on a class: {', '.join(locked)}",
             )
     for field in ("start_at", "end_at"):
         if field in changes:

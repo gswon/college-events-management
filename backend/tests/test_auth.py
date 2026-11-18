@@ -1,8 +1,8 @@
-"""인증 API 테스트 (Supabase 이메일 + 비밀번호).
+"""Auth API tests (Supabase email + password).
 
-Supabase 호출은 FakeSupabase로 바꿔 실제 계정을 만들지 않는다.
-토큰 검증은 테스트용 EC 키쌍으로 서명한 JWT로 확인한다.
-db 픽스처를 쓰는 테스트만 DB에 접속한다 (끝나면 롤백).
+Supabase calls are replaced by FakeSupabase, so no real account is created.
+Token checks use JWTs signed with a test EC key pair.
+Only tests that use the db fixture touch the DB (rolled back afterwards).
 """
 import time
 import uuid
@@ -18,18 +18,17 @@ import auth
 import models
 import supabase_auth
 from supabase_auth import SupabaseAuthError
-from tests.conftest import make_user
-from tests.test_events import assert_error
+from tests.conftest import assert_error, make_user
 
 API = "/api/v1"
 SUPABASE_URL = "https://test-project.supabase.co"
 ISSUER = f"{SUPABASE_URL}/auth/v1"
-# 새 비밀번호 규칙(8자 이상, 소문자·대문자·숫자·특수문자)을 통과하는 값
+# Values that pass the new-password rules (8+ chars, lowercase, uppercase, digit, symbol)
 PASSWORD = "Passw0rd!"
 NEW_PASSWORD = "NewPassw0rd!"
 
 
-# --- 준비 --------------------------------------------------------------------
+# --- Setup -------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
 def signing_key():
@@ -44,7 +43,7 @@ def supabase_config(monkeypatch, signing_key):
 
 
 class FakeSupabase:
-    """supabase_auth 함수 호출을 기록하고, results[이름]을 돌려주거나 예외면 던진다."""
+    """Records supabase_auth calls and returns results[name], raising it if it is an exception."""
 
     NAMES = (
         "sign_up", "verify_otp", "resend_signup_code", "sign_in",
@@ -113,7 +112,7 @@ def supa_error(status: int, code: str) -> SupabaseAuthError:
     return SupabaseAuthError(status, code, "supabase message")
 
 
-# --- 가입 --------------------------------------------------------------------
+# --- Sign up -----------------------------------------------------------------
 
 def test_signup_sends_code(client, fake):
     res = client.post(f"{API}/auth/signup", json={"email": "  Student@NYU.edu ", "password": PASSWORD, "display_name": " Kim "})
@@ -137,11 +136,11 @@ def test_signup_short_password_never_reaches_supabase(client, fake):
 @pytest.mark.parametrize(
     "password, missing",
     [
-        ("PASSW0RD!", "소문자"),
-        ("passw0rd!", "대문자"),
-        ("Password!", "숫자"),
-        ("Passw0rd1", "특수문자"),
-        ("Passw0rd 한글", "특수문자"),  # 공백·한글은 Supabase가 특수문자로 치지 않는다
+        ("PASSW0RD!", "a lowercase letter"),
+        ("passw0rd!", "an uppercase letter"),
+        ("Password!", "a number"),
+        ("Passw0rd1", "a symbol"),
+        ("Passw0rd 한글", "a symbol"),  # Supabase does not count spaces or Korean letters as symbols
     ],
 )
 def test_new_password_needs_every_character_kind(client, fake, password, missing):
@@ -150,7 +149,7 @@ def test_new_password_needs_every_character_kind(client, fake, password, missing
     assert missing in signup.json()["error"]["message"]
     reset = client.post(f"{API}/auth/password/reset", json={"email": new_email(), "code": "654321", "new_password": password})
     assert_error(reset, 422, "VALIDATION_ERROR")
-    # 재설정 코드가 소모되지 않도록 Supabase까지 가지 않아야 한다.
+    # Must never reach Supabase, so the reset code is not used up.
     assert fake.calls == []
 
 
@@ -161,7 +160,7 @@ def test_new_password_accepts_supabase_symbols(client, fake, symbol):
 
 
 def test_signup_verified_email_is_taken(client, fake):
-    # Confirm email이 켜져 있으면 이미 가입된 이메일에 identities가 빈 가짜 유저가 온다.
+    # With Confirm email on, an already registered email gets a fake user with empty identities.
     fake.results["sign_up"] = {"id": str(uuid.uuid4()), "email": "x@nyu.edu", "identities": []}
     res = client.post(f"{API}/auth/signup", json={"email": new_email(), "password": PASSWORD, "display_name": "A"})
     assert_error(res, 409, "EMAIL_TAKEN")
@@ -205,7 +204,7 @@ def test_verify_email_logs_in(client, db, fake):
     assert fake.called("verify_otp") == [(email, "123456", "signup")]
 
 
-# --- 로그인 / 세션 -------------------------------------------------------------
+# --- Log in / sessions ---------------------------------------------------------
 
 def test_login_creates_user_on_first_login(client, db, fake):
     email, uid = new_email(), str(uuid.uuid4())
@@ -245,7 +244,7 @@ def test_login_twice_keeps_one_row(client, db, fake):
 
 
 def test_login_non_nyu_account_is_rejected(client, db, fake):
-    # 대시보드에서 직접 만든 계정처럼 @nyu.edu가 아닌 세션은 끊고, MySQL에는 만들지 않는다.
+    # A non-@nyu.edu session (e.g. an account made in the dashboard) is ended and gets no MySQL row.
     fake.results["sign_in"] = supa_session("someone@gmail.com", access_token="at-gmail")
     assert_error(client.post(f"{API}/auth/login", json={"email": "someone@gmail.com", "password": "pw"}), 403, "NYU_ACCOUNT_REQUIRED")
     assert fake.called("sign_out") == [("at-gmail", "global")]
@@ -308,7 +307,7 @@ def test_logout_needs_token(auth_client, fake):
     assert fake.calls == []
 
 
-# --- 토큰 검증 (auth.get_current_user) ---------------------------------------
+# --- Token verification (auth.get_current_user) ------------------------------
 
 def test_no_token(auth_client):
     assert_error(auth_client.get(f"{API}/friends"), 401, "AUTH_REQUIRED")
@@ -342,7 +341,7 @@ def test_valid_token_without_user_row(auth_client, db, signing_key):
     assert_error(auth_client.get(f"{API}/friends", headers=bearer(token)), 401, "AUTH_REQUIRED")
 
 
-# --- 비밀번호 변경 / 찾기 ------------------------------------------------------
+# --- Change / reset password ---------------------------------------------------
 
 @pytest.fixture
 def logged_in(db, signing_key):
@@ -421,12 +420,12 @@ def test_reset_password_rejected_ends_recovery_session(client, fake):
     assert fake.called("sign_out") == [("at-recovery", "local")]
 
 
-# --- Supabase 응답 해석 --------------------------------------------------------
+# --- Reading Supabase responses ------------------------------------------------
 
 @pytest.mark.parametrize(
     "body, code, message",
     [
-        # X-Supabase-Api-Version: 2024-01-01 을 보낼 때 실제로 오는 형식
+        # The format Supabase actually returns when X-Supabase-Api-Version: 2024-01-01 is sent
         ({"code": "invalid_credentials", "message": "Invalid login credentials"},
          "invalid_credentials", "Invalid login credentials"),
         ({"code": 400, "error_code": "invalid_credentials", "msg": "Invalid login credentials"},
