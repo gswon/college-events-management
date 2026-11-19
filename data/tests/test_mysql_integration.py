@@ -5,8 +5,10 @@
   docker compose exec mysql mysql -uroot -proot-change-me -e "CREATE DATABASE IF NOT EXISTS nyu_events_test"
   TEST_DB_NAME=nyu_events_test TEST_DB_USER=root TEST_DB_PASSWORD=root-change-me python -m pytest
 """
+import itertools
 import os
 import re
+from datetime import datetime, timedelta
 
 import pymysql
 import pytest
@@ -14,10 +16,19 @@ import pytest
 from ingest import config
 from ingest.migrate import apply
 from ingest.models import Organization
+from ingest import run
 from ingest.run import run_source
 from ingest.store import Lookup
 
 pytestmark = pytest.mark.skipif(not os.getenv("TEST_DB_NAME"), reason="TEST_DB_NAME 이 없으면 건너뜀")
+
+
+@pytest.fixture(autouse=True)
+def frozen_now(monkeypatch):
+    """'지금'을 fixtures 를 받은 날(2026-10-06)로 고정한다. 안 그러면 날짜가 지나면서 '미래 경기'가
+    과거가 되어 취소 처리 테스트가 깨진다. 실행마다 1초씩 늘려서 이전 실행과 구분되게 한다."""
+    ticks = itertools.count()
+    monkeypatch.setattr(run, "utc_now", lambda: datetime(2026, 10, 6, 12, 0) + timedelta(seconds=next(ticks)))
 
 
 @pytest.fixture
@@ -57,9 +68,10 @@ def ev(conn, external_id, *cols):
 
 def test_schema_applies_cleanly_and_is_idempotent(conn):
     tables = {t for (t,) in q(conn, "SHOW TABLES")}
-    assert len(tables) == 14
+    assert len(tables) == 15                    # 앱 12 + colleges + raw_events + ingest_runs
     apply(conn, "all")
     assert q(conn, "SELECT COUNT(*) FROM event_categories")[0][0] == 7
+    assert q(conn, "SELECT id, code FROM colleges ORDER BY id") == ((1, "NYU"), (2, "PRINCETON"))
     assert q(conn, "SELECT @@session.time_zone")[0][0] == "+00:00"
 
 
@@ -70,9 +82,55 @@ def test_manual_events_without_external_id(conn):
                 "VALUES ('MANUAL', %s, 7, '2026-11-01 15:00:00', '2026-11-01 16:00:00')", title)
     conn.commit()
     assert q(conn, "SELECT COUNT(*) FROM events WHERE source = 'MANUAL' AND external_id IS NULL")[0][0] == 2
+    # college_id 를 모르는 INSERT(백엔드)는 기본값 1 = NYU
+    assert q(conn, "SELECT DISTINCT college_id FROM events WHERE source = 'MANUAL'") == ((1,),)
     with pytest.raises(pymysql.err.OperationalError):
         q(conn, "INSERT INTO events (source, external_id, title, category_id, start_at, end_at) "
                 "VALUES ('MANUAL', 'x', 'bad', 7, '2026-11-01 16:00:00', '2026-11-01 15:00:00')")
+
+
+def test_college_columns_added_to_existing_database(conn):
+    """college_id 가 없던 기존 DB(지금 Railway)에 적용: 기존 행은 NYU, 두 번 적용해도 그대로."""
+    with conn.cursor() as cur:
+        cur.execute("ALTER TABLE events DROP FOREIGN KEY fk_events_college, DROP KEY idx_events_college_start, "
+                    "DROP COLUMN college_id")
+        cur.execute("ALTER TABLE organizations DROP FOREIGN KEY fk_organizations_college, DROP COLUMN college_id")
+        cur.execute("DROP TABLE colleges")
+        cur.execute("INSERT INTO events (source, external_id, title, category_id, start_at, end_at) "
+                    "VALUES ('NYU_EVENTS', 'old-1', 'Old', 7, '2026-11-01 15:00:00', '2026-11-01 16:00:00')")
+    conn.commit()
+
+    apply(conn, "ingest")                       # 백엔드가 앱 테이블을 만든 경우에도 적용된다
+    apply(conn, "all")
+    assert ev(conn, "old-1", "college_id")[0] == 1
+    cols = q(conn, "SELECT TABLE_NAME FROM information_schema.COLUMNS "
+                   "WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'college_id' ORDER BY TABLE_NAME")
+    assert cols == (("events",), ("organizations",))
+    with pytest.raises(pymysql.err.IntegrityError):   # 없는 학교 id 는 FK 가 막는다
+        q(conn, "UPDATE events SET college_id = 99 WHERE external_id = 'old-1'")
+
+
+def test_princeton_sources_into_mysql(web, conn):
+    run_source(conn, "nyu_events")
+    run_source(conn, "princeton_events")
+    run_source(conn, "princeton_athletics")
+
+    by_college = dict(q(conn, "SELECT c.code, COUNT(*) FROM events e JOIN colleges c ON c.id = e.college_id "
+                              "GROUP BY c.code"))
+    assert by_college == {"NYU": 8, "PRINCETON": 9 + 4}
+    assert dict(q(conn, "SELECT source, college_id FROM events WHERE source LIKE 'PRINCETON%%' "
+                        "GROUP BY source, college_id")) == {"PRINCETON_EVENTS": 2, "PRINCETON_ATHLETICS": 2}
+
+    cats = dict(q(conn, "SELECT e.external_id, c.code FROM events e JOIN event_categories c ON c.id = e.category_id "
+                        "WHERE e.source = 'PRINCETON_EVENTS'"))
+    assert cats["339836-0"] == "ARTS" and cats["338091-0"] == "CAREER" and cats["331606-0"] == "ACADEMIC"
+    row = ev(conn, "331606-0", "start_at", "end_at", "is_all_day")   # 11/26~27 종일
+    assert (str(row[0]), str(row[1]), row[2]) == ("2026-11-26 05:00:00", "2026-11-28 05:00:00", 1)
+
+    # 단체도 학교별. NYU 쪽 단체는 college_id 1 그대로
+    orgs = {slug: college for slug, college in q(conn, "SELECT slug, college_id FROM organizations")}
+    assert orgs["princeton-athletics"] == 2 and orgs["princeton-lewis-center-arts"] == 2
+    assert {c for s, c in orgs.items() if not s.startswith("princeton-")} == {1}
 
 
 def test_all_sources_into_mysql(web, conn):

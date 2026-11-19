@@ -51,9 +51,11 @@ def save_raw(cur, source: str, item: RawItem, seen_at: datetime) -> bool:
     """원본을 저장하고, 새로 생겼거나 내용이 바뀌었으면 True 를 돌려준다.
 
     내용이 같으면 last_seen_at 만 갱신한다 (피드에 아직 있다는 표시).
+    '_' 로 시작하는 키(예: 매번 바뀌는 서명된 이미지 URL)는 저장은 하되 해시에서 뺀다.
     """
     body = payload_json(item.payload)
-    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    stable = {k: v for k, v in item.payload.items() if not k.startswith("_")}
+    digest = hashlib.sha256(payload_json(stable).encode("utf-8")).hexdigest()
 
     cur.execute(
         "SELECT payload_hash FROM raw_events WHERE source = %s AND external_id = %s",
@@ -90,11 +92,20 @@ def save_raw(cur, source: str, item: RawItem, seen_at: datetime) -> bool:
 
 
 class Lookup:
-    """event_categories 코드 → id, organizations (source, external_id) → id 를 실행 중에 캐시한다."""
+    """event_categories / colleges 코드 → id, organizations (source, external_id) → id 를 실행 중에 캐시한다."""
 
     def __init__(self):
         self.categories: dict[str, int] = {}
+        self.colleges: dict[str, int] = {}
         self.organizations: dict[tuple[str, str], int] = {}
+
+    def college_id(self, cur, code: str) -> int:
+        if not self.colleges:
+            cur.execute("SELECT code, id FROM colleges")
+            self.colleges = {c: i for c, i in cur.fetchall()}
+        if code not in self.colleges:
+            raise ValueError(f"colleges 에 없는 코드: {code} (schema_colleges.sql 초기값 확인, --migrate)")
+        return self.colleges[code]
 
     def category_id(self, cur, code: str) -> int:
         if not self.categories:
@@ -104,7 +115,7 @@ class Lookup:
             raise ValueError(f"event_categories 에 없는 코드: {code} (NYUEventSchema.sql 초기값 확인)")
         return self.categories[code]
 
-    def organization_id(self, cur, source: str, org: Organization | None) -> int | None:
+    def organization_id(self, cur, source: str, org: Organization | None, college: str = "NYU") -> int | None:
         """단체를 (source, external_id) 로 찾고, 없으면 만든다.
 
         이미 있는 단체는 덮어쓰지 않는다 — 관리자가 PATCH /admin/organizations 로 고친 이름·소개를 지키기 위해.
@@ -120,9 +131,9 @@ class Lookup:
         if row is None:
             slug = self._free_slug(cur, org.slug or "org", org.external_id)
             cur.execute(
-                "INSERT INTO organizations (slug, name, website_url, source, external_id) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (slug, org.name[:200], org.website_url, source, org.external_id),
+                "INSERT INTO organizations (college_id, slug, name, website_url, source, external_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (self.college_id(cur, college), slug, org.name[:200], org.website_url, source, org.external_id),
             )
             row = (cur.lastrowid,)
         self.organizations[key] = row[0]
@@ -140,7 +151,7 @@ class Lookup:
 
 
 _EVENT_COLUMNS = (
-    "source", "external_id", "source_url", "title", "description", "category_id",
+    "source", "college_id", "external_id", "source_url", "title", "description", "category_id",
     "organization_id", "host_name", "start_at", "end_at", "is_all_day",
     "location_name", "address", "is_online", "online_url", "registration_url", "image_url",
     "is_free", "price_text", "audience_text", "status", "last_synced_at",
@@ -162,12 +173,13 @@ def upsert_event(cur, source: str, event: Event, lookup: Lookup, synced_at: date
     start_at, end_at = event.resolve_times()
     values = (
         source,
+        lookup.college_id(cur, event.college),
         event.external_id[:255],
         event.source_url,
         event.title[:255],
         event.description,
         lookup.category_id(cur, event.category),
-        lookup.organization_id(cur, source, event.organization),
+        lookup.organization_id(cur, source, event.organization, event.college),
         (event.host_name or None) and event.host_name[:200],
         _naive_utc(start_at),
         _naive_utc(end_at),

@@ -20,7 +20,7 @@ _session.headers["User-Agent"] = config.USER_AGENT
 _last_request_at = 0.0
 
 
-def get(url: str, *, allow_404: bool = False, timeout: int = 30, retries: int = 2):
+def get(url: str, *, allow_404: bool = False, timeout: int = 30, retries: int = 2, headers: dict | None = None):
     """URL을 GET 한다. allow_404=True 이면 404일 때 예외 대신 None을 돌려준다."""
     global _last_request_at
 
@@ -29,7 +29,7 @@ def get(url: str, *, allow_404: bool = False, timeout: int = 30, retries: int = 
         if wait > 0:
             time.sleep(wait)
         try:
-            resp = _session.get(url, timeout=timeout)
+            resp = _session.get(url, timeout=timeout, headers=headers)
         except (requests.ConnectionError, requests.Timeout) as exc:
             _last_request_at = time.monotonic()
             if attempt == retries:

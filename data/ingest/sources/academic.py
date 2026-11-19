@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 SLUG = "academic"
 SOURCE = "ACADEMIC"
+COLLEGE = "NYU"
 NAME = "NYU Academic Calendar"
 BASE_URL = "https://bulletins.nyu.edu/nyu/academic-calendar/"
 

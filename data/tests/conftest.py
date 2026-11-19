@@ -1,7 +1,7 @@
 """테스트 공통 설정: 실제 사이트 대신 tests/fixtures 의 파일을 돌려주는 가짜 http.get.
 
 fixtures 는 2026-10-06~07 에 실제 사이트에서 받은 응답을 줄여 만든 것이다
-(wasserman_ubs.ics 와 academic.html 은 실제 내용을 바탕으로 같은 형식으로 재구성).
+(technyu.ics 는 2026-11-04 Luma 피드에서 5건만 남긴 것. princeton_*.ics/xml 은 2026-11-14 실제 피드에서 몇 건만 남긴 것. wasserman_ubs.ics 와 academic.html 은 실제 내용을 바탕으로 같은 형식으로 재구성).
 """
 import json
 from datetime import date
@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from ingest import config, http
-from ingest.sources import academic, athletics, nyu_events, wasserman
+from ingest.sources import academic, athletics, nyu_events, technyu, wasserman
 
 FIXTURES = Path(__file__).parent / "fixtures"
 TODAY = date(2026, 10, 6)
@@ -20,6 +20,7 @@ class FakeResponse:
     def __init__(self, body: bytes):
         self.content = body
         self.status_code = 200
+        self.headers = {}
 
     def json(self):
         return json.loads(self.content)
@@ -36,6 +37,10 @@ class FakeWeb:
             "ubs-investment-banking-info-session.ics/": (FIXTURES / "wasserman_ubs.ics").read_bytes(),
             "gonyuathletics.com/calendar.ashx": (FIXTURES / "athletics.ics").read_bytes(),
             "bulletins.nyu.edu/nyu/academic-calendar/": (FIXTURES / "academic.html").read_bytes(),
+            "api.lu.ma/ics/get": (FIXTURES / "technyu.ics").read_bytes(),
+            "princeton.edu/feed/events.ics": (FIXTURES / "princeton_events.ics").read_bytes(),
+            "princeton.edu/feed/events": (FIXTURES / "princeton_events.xml").read_bytes(),
+            "goprincetontigers.com/calendar.ashx": (FIXTURES / "princeton_athletics.ics").read_bytes(),
         }
         self.requested: list[str] = []
 
@@ -59,7 +64,7 @@ def web(monkeypatch):
     monkeypatch.setattr(http, "get", fake.get)
     monkeypatch.setattr(config, "REQUEST_DELAY_SEC", 0)
     monkeypatch.setattr(config, "NYU_EVENTS_DAYS_AHEAD", 1)
-    for module in (nyu_events, wasserman, academic, athletics):
+    for module in (nyu_events, wasserman, academic, athletics, technyu):
         if hasattr(module, "ny_today"):
             monkeypatch.setattr(module, "ny_today", lambda: TODAY)
     return fake

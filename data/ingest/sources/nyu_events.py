@@ -10,6 +10,8 @@
     → engage.nyu.edu/event/<번호> 를 기준으로 하나만 남긴다 (태그가 있는 쪽 우선).
   * Wasserman 그룹(gid 109) 이벤트는 Wasserman 수집기가 정본이므로 여기서 뺀다.
   * 같은 이유로 'NYU Athletics' 그룹 경기는 athletics 수집기(iCal)가 정본이라 뺀다.
+  * Tech@NYU 는 Luma 행사를 Engage 에도 다른 제목으로 올린다 → technyu 수집기가 정본.
+    제목에 Tech@NYU 가 들어간 행사 중 Luma 행사와 시작 시각이 1시간 이내인 것은 뺀다.
 """
 from __future__ import annotations
 
@@ -18,6 +20,8 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from .. import config, http
+from . import technyu
+from ..categorize import from_title
 from ..models import Event, FetchResult, Organization, RawItem
 from ..textutil import NY, clean_text, fit, fit_url, normalize_tags, ny_date, ny_today, parse_utc, slugify
 
@@ -25,6 +29,7 @@ log = logging.getLogger(__name__)
 
 SLUG = "nyu_events"
 SOURCE = "NYU_EVENTS"
+COLLEGE = "NYU"
 NAME = "NYU Events (events.nyu.edu)"
 BASE_URL = "https://events.nyu.edu"
 
@@ -36,17 +41,28 @@ ENGAGE_GID = 22
 EXCLUDED_GIDS = {109}
 EXCLUDED_GROUP_TITLES = {"NYU Athletics"}
 
+_TECHNYU_RE = re.compile(r"tech\s*@\s*nyu|techatnyu", re.I)
+TECHNYU_MATCH_WINDOW = timedelta(hours=1)
 _ENGAGE_RE = re.compile(r"engage\.nyu\.edu/event/(\d+)")
 _CANCELED_PREFIX_RE = re.compile(r"^\s*CANCEL+ED\s*[:\-]\s*", re.I)
 _CAREER_WORDS = ("career", "job", "internship", "networking", "recruit", "resume", "interview")
 # 카테고리 판별용 단어 (태그 / 이벤트 종류 / 그룹 이름에서 단어 단위로 찾는다)
 _ARTS_RE = re.compile(r"\b(arts?|music|film|cinema|theat(er|re)|dance|concert|exhibit(ion)?|gallery|"
-                      r"performance|poetry|opera|jazz)\b", re.I)
+                      r"performance|poetry|opera|jazz|broadway)\b", re.I)
 _WELLNESS_RE = re.compile(r"\b(wellness|wellbeing|well-being|health|mindful\w*|meditation|yoga|"
                           r"fitness|mental|counseling)\b", re.I)
-_ACADEMIC_RE = re.compile(r"\b(lecture|seminar|colloquium|symposium|research|conference|academic|"
+_ACADEMIC_RE = re.compile(r"\b(lectures?|seminars?|colloquium|symposium|research|conferences?|speakers?|academic|"
                           r"panel discussion|deadlines?|registration)\b", re.I)
 _SPORTS_RE = re.compile(r"\b(athletics?|sports?|recreation)\b", re.I)
+_ARTS_AND_SCIENCE_RE = re.compile(r"arts\s*(&|&amp;|and)\s*sciences?", re.I)
+_GROUP_RULES = [
+    ("CAREER", re.compile(r"career|wasserman|employ", re.I)),
+    ("ARTS", re.compile(r"\barts?\b|music|museum|gallery|theat(er|re)|box office|film", re.I)),
+    ("WELLNESS", re.compile(r"wellbeing|wellness|health center|counseling|spiritual life", re.I)),
+    ("SPORTS", re.compile(r"athletic|recreation", re.I)),
+    ("ACADEMIC", re.compile(r"school|college|libraries|library|institute|department|steinhardt|tandon|"
+                            r"wagner|stern|gallatin|courant|global services|humanities|liberal studies", re.I)),
+]
 # 이벤트 종류 중 '누가 올 수 있는지'를 말하는 것만 audience_text 로
 _AUDIENCE_RE = re.compile(r"public|student|faculty|staff|alumni|community|grad|undergrad|nyu id|member", re.I)
 _IMG_SRC_RE = re.compile(r'src="([^"]+)"')
@@ -113,27 +129,57 @@ def fetch() -> FetchResult:
                 chosen[key] = row
         day += chunk
 
+    _drop_technyu_duplicates(chosen)
     items = [RawItem(external_id=k, payload=v) for k, v in chosen.items()]
     window_end_utc = datetime.combine(last_day, datetime.min.time(), tzinfo=NY).astimezone(timezone.utc)
     return FetchResult(items=items, complete=True, window_end_utc=window_end_utc)
 
 
-def _category(row: dict, tags: list[str]) -> str:
-    """event_categories.code 로 매핑. 먼저 맞는 규칙이 이긴다."""
+def _drop_technyu_duplicates(chosen: dict[str, dict]) -> None:
+    keys = [k for k, row in chosen.items() if _TECHNYU_RE.search(row.get("title") or "")]
+    if not keys:
+        return
+    try:
+        luma_starts = technyu.start_times()
+    except Exception as exc:  # Luma 가 안 되면 중복이 남더라도 행사를 잃지 않는 쪽으로
+        log.warning("Tech@NYU 중복 확인용 Luma 피드 받기 실패, 중복 제거 건너뜀: %s", exc)
+        return
+    for key in keys:
+        start = parse_utc(chosen[key].get("date_utc"))
+        if start and any(abs(start - s) <= TECHNYU_MATCH_WINDOW for s in luma_starts):
+            log.debug("Tech@NYU 중복으로 제외: %s %s", key, chosen[key].get("title"))
+            del chosen[key]
+
+
+def _category(row: dict, tags: list[str], title: str) -> str:
+    """event_categories.code 로 매핑. 먼저 맞는 규칙이 이긴다.
+
+    1) 제목 키워드 (categorize.py, Princeton 과 공통) — 태그는 부서가 아무렇게나 붙이는 경우가 많다
+       (Box Office 의 Jets 경기에 'arts', 'School of Global Public Health' 세미나가 health 때문에 WELLNESS 등)
+    2) Engage 동아리 행사 → SOCIAL
+    3) 태그 / 이벤트 종류 / 그룹 이름
+    """
+    by_title = from_title(title)
+    if by_title:
+        return by_title
     if _ENGAGE_RE.search(row.get("url") or ""):
         return "SOCIAL"
-    group = str(row.get("group_title") or "")
-    haystack = " ".join(tags + [group]).lower()
-    if any(w in haystack for w in _CAREER_WORDS):
+    # 'College of Arts & Science'(문리대) 태그·그룹 이름의 arts 는 예술이 아니다
+    tag_text = _ARTS_AND_SCIENCE_RE.sub(" ", " ".join(tags).lower())
+    if any(w in tag_text for w in _CAREER_WORDS):
         return "CAREER"
-    if _ARTS_RE.search(haystack):
-        return "ARTS"
-    if _WELLNESS_RE.search(haystack):
-        return "WELLNESS"
-    if _SPORTS_RE.search(haystack):
-        return "SPORTS"
-    if _ACADEMIC_RE.search(haystack):
+    for category, pattern in (("ARTS", _ARTS_RE), ("WELLNESS", _WELLNESS_RE), ("SPORTS", _SPORTS_RE),
+                              ("ACADEMIC", _ACADEMIC_RE)):
+        if pattern.search(tag_text):
+            return category
+    # 그룹 이름은 마지막에 본다. 'School of Global Public Health' 세미나가 health 때문에 WELLNESS 가 되지 않게
+    # 학교·도서관 그룹은 ACADEMIC 으로 (Tisch School of the Arts 처럼 예술 학교는 ARTS 가 먼저)
+    group = clean_text(row.get("group_title")) or ""
+    if _ARTS_AND_SCIENCE_RE.search(group):
         return "ACADEMIC"
+    for category, pattern in _GROUP_RULES:
+        if pattern.search(group):
+            return category
     return "OTHER"
 
 
@@ -207,7 +253,7 @@ def normalize(row: dict) -> Event:
     event = Event(
         external_id="",
         title=title,
-        category=_category(row, tags),
+        category=_category(row, tags, title),
         status="CANCELLED" if canceled else "ACTIVE",
         description=clean_text(row.get("summary") or row.get("description"), 10000),
         source_url=url,

@@ -1,7 +1,7 @@
 """수집 실행 진입점.
 
   python -m ingest.run                          # 기본 소스 (INGEST_SOURCES, 학사일정 제외)
-  python -m ingest.run --source all             # 4개 소스 전부
+  python -m ingest.run --source all             # 모든 소스
   python -m ingest.run --source athletics,wasserman   # 골라서
   python -m ingest.run --migrate                # 실행 전에 스키마 적용 (Railway 크론에서 사용)
   python -m ingest.run --source academic --dry-run   # DB에 안 넣고 변환 결과만 출력
@@ -25,10 +25,25 @@ import traceback
 from dataclasses import asdict
 
 from . import config
+from .groups import assign_groups
 from .sources import SOURCES
 from .store import Lookup, cancel_missing, finish_run, save_raw, start_run, touch_synced, upsert_event, utc_now
 
 log = logging.getLogger("ingest")
+
+
+def to_events(module, item) -> list:
+    """normalize() 결과를 Event 목록으로. 원본 하나에 이벤트가 여러 개면 두 번째부터
+    external_id 에 '#2', '#3' 을 붙인다. 빈 목록 = 이벤트가 아닌 원본.
+    college 는 소스 모듈의 COLLEGE (NYU / PRINCETON) 로 채운다."""
+    result = module.normalize(item.payload)
+    events = result if isinstance(result, list) else [result]
+    for n, event in enumerate(events, start=1):
+        event.external_id = item.external_id if n == 1 else f"{item.external_id}#{n}"
+        event.college = module.COLLEGE
+        event.validate()
+        event.groups = assign_groups(module.SOURCE, event)
+    return events
 
 
 def run_source(conn, slug: str, *, force: bool = False) -> dict:
@@ -55,15 +70,18 @@ def run_source(conn, slug: str, *, force: bool = False) -> dict:
                 if not (changed or force):
                     continue
                 try:
-                    event = module.normalize(item.payload)
-                    event.external_id = item.external_id
-                    event.validate()
+                    events = to_events(module, item)
                 except Exception as exc:
                     counts["skipped"] += 1
                     log.warning("[%s] 변환 실패, 건너뜀 (%s): %s", slug, item.external_id, exc)
                     continue
-                upsert_event(cur, source, event, lookup, started_at)
-                counts["upserted"] += 1
+                if not events:
+                    counts["skipped"] += 1
+                    log.info("[%s] 이벤트 없음, 건너뜀 (%s)", slug, item.external_id)
+                    continue
+                for event in events:
+                    upsert_event(cur, source, event, lookup, started_at)
+                    counts["upserted"] += 1
                 if i % config.COMMIT_EVERY == 0:
                     conn.commit()
 
@@ -92,20 +110,21 @@ def dry_run(slug: str, limit: int) -> None:
     print(f"# {slug}: {len(result.items)}건 받음 (complete={result.complete})", file=sys.stderr)
     for item in result.items[:limit]:
         try:
-            event = module.normalize(item.payload)
-            event.external_id = item.external_id
-            event.validate()
-            start_at, end_at = event.resolve_times()
-            row = {"source": module.SOURCE, **asdict(event),
-                   "db_start_at": start_at.isoformat(), "db_end_at": end_at.isoformat()}
-            print(json.dumps(row, ensure_ascii=False, default=str))
+            events = to_events(module, item)
+            if not events:
+                print(f"# {item.external_id}: 이벤트 없음", file=sys.stderr)
+            for event in events:
+                start_at, end_at = event.resolve_times()
+                row = {"source": module.SOURCE, **asdict(event),
+                       "db_start_at": start_at.isoformat(), "db_end_at": end_at.isoformat()}
+                print(json.dumps(row, ensure_ascii=False, default=str))
         except Exception as exc:
             print(json.dumps({"external_id": item.external_id, "error": str(exc),
                               "payload": item.payload}, ensure_ascii=False, default=str))
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="NYU 이벤트 수집기")
+    parser = argparse.ArgumentParser(description="대학 이벤트 수집기 (NYU, Princeton)")
     parser.add_argument("--source", default=config.DEFAULT_SOURCES,
                         help=f"all 또는 쉼표로 구분한 소스 이름 ({', '.join(SOURCES)}). "
                              f"기본값: {config.DEFAULT_SOURCES}")

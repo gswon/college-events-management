@@ -47,7 +47,8 @@ DB = _db_from_env()
 
 # `python -m ingest.run` 을 --source 없이 돌릴 때 수집할 소스 (쉼표로 구분).
 # 학사일정(academic)은 틀리면 치명적이라 기본값에서 빼고 --source academic 으로 따로 돌린다.
-DEFAULT_SOURCES = os.getenv("INGEST_SOURCES", "nyu_events,wasserman,athletics")
+DEFAULT_SOURCES = os.getenv(
+    "INGEST_SOURCES", "nyu_events,wasserman,athletics,technyu,princeton_events,princeton_athletics")
 
 # --migrate 때 적용할 스키마
 #   all    : 앱 테이블(NYUEventSchema.sql, 없을 때만) + 수집기 테이블
