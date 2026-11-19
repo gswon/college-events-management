@@ -1,23 +1,21 @@
-from typing import Annotated, Literal
+from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.orm import Session, contains_eager, joinedload
 
 import models
 from auth import user_dependency
-from database import get_db
+from database import db_dependency
 from errors import APIError
 from schemas import FriendOut, FriendRequestCreate, FriendRequestOut, SharingLevels, SharingUpdate
 from timeutil import utc_now
 
 router = APIRouter(tags=["friends"])
 
-db_dependency = Annotated[Session, Depends(get_db)]
-
 
 def _make_friends(db: Session, a: models.User, b: models.User) -> None:
-    # 양방향 2행. 각자의 기본 공유 수준을 자기 행으로 복사한다.
+    # Two rows, one per direction. Each side's default share levels are copied into its own row.
     for owner, other in ((a, b), (b, a)):
         if db.get(models.Friendship, (owner.id, other.id)) is None:
             db.add(models.Friendship(
@@ -39,29 +37,29 @@ def _pending_request(db: Session, user: models.User, request_id: int, incoming: 
     req = db.get(models.FriendRequest, request_id)
     owner_id = None if req is None else (req.to_user_id if incoming else req.from_user_id)
     if owner_id != user.id:
-        raise APIError(404, "REQUEST_NOT_FOUND", "친구 요청을 찾을 수 없습니다.")
+        raise APIError(404, "REQUEST_NOT_FOUND", "Friend request not found.")
     if req.status != "PENDING":
-        raise APIError(409, "REQUEST_NOT_PENDING", "이미 처리된 친구 요청입니다.")
+        raise APIError(409, "REQUEST_NOT_PENDING", "This friend request was already handled.")
     return req
 
 
 def _my_friendship(db: Session, user: models.User, friend_id: int) -> models.Friendship:
     row = db.get(models.Friendship, (user.id, friend_id))
     if row is None:
-        raise APIError(404, "FRIEND_NOT_FOUND", "친구가 아닙니다.")
+        raise APIError(404, "FRIEND_NOT_FOUND", "This user is not your friend.")
     return row
 
 
-# --- 친구 목록 -------------------------------------------------------------
+# --- Friends -----------------------------------------------------------------
 
 @router.get("/friends", response_model=list[FriendOut])
 def list_friends(db: db_dependency, user: user_dependency):
-    F = models.Friendship
+    Friendship = models.Friendship
     rows = db.scalars(
-        select(F)
-        .join(F.friend)
-        .options(contains_eager(F.friend))
-        .where(F.user_id == user.id)
+        select(Friendship)
+        .join(Friendship.friend)
+        .options(contains_eager(Friendship.friend))
+        .where(Friendship.user_id == user.id)
         .order_by(models.User.display_name, models.User.id)
     ).all()
     return [{"user": row.friend, "sharing": row.levels()} for row in rows]
@@ -69,17 +67,17 @@ def list_friends(db: db_dependency, user: user_dependency):
 
 @router.delete("/friends/{user_id}", status_code=204)
 def unfriend(user_id: int, db: db_dependency, user: user_dependency):
-    F = models.Friendship
-    result = db.execute(delete(F).where(or_(
-        and_(F.user_id == user.id, F.friend_id == user_id),
-        and_(F.user_id == user_id, F.friend_id == user.id),
+    Friendship = models.Friendship
+    result = db.execute(delete(Friendship).where(or_(
+        and_(Friendship.user_id == user.id, Friendship.friend_id == user_id),
+        and_(Friendship.user_id == user_id, Friendship.friend_id == user.id),
     )))
     if result.rowcount == 0:
-        raise APIError(404, "FRIEND_NOT_FOUND", "친구가 아닙니다.")
+        raise APIError(404, "FRIEND_NOT_FOUND", "This user is not your friend.")
     db.commit()
 
 
-# --- 친구 요청 -------------------------------------------------------------
+# --- Friend requests ---------------------------------------------------------
 
 @router.get("/friends/requests", response_model=list[FriendRequestOut])
 def list_friend_requests(
@@ -87,42 +85,49 @@ def list_friend_requests(
     user: user_dependency,
     direction: Literal["incoming", "outgoing"] = "incoming",
 ):
-    R = models.FriendRequest
-    mine = R.to_user_id if direction == "incoming" else R.from_user_id
+    FriendRequest = models.FriendRequest
+    mine = FriendRequest.to_user_id if direction == "incoming" else FriendRequest.from_user_id
     return db.scalars(
-        select(R)
-        .options(joinedload(R.from_user), joinedload(R.to_user))
-        .where(mine == user.id, R.status == "PENDING")
-        .order_by(R.created_at.desc(), R.id.desc())
+        select(FriendRequest)
+        .options(joinedload(FriendRequest.from_user), joinedload(FriendRequest.to_user))
+        .where(mine == user.id, FriendRequest.status == "PENDING")
+        .order_by(FriendRequest.created_at.desc(), FriendRequest.id.desc())
     ).all()
 
 
 @router.post("/friends/requests", response_model=FriendRequestOut, status_code=201)
 def send_friend_request(body: FriendRequestCreate, db: db_dependency, user: user_dependency):
     if body.to_user_id == user.id:
-        raise APIError(400, "INVALID_FRIEND_REQUEST", "자기 자신에게는 친구 요청을 보낼 수 없습니다.")
+        raise APIError(400, "INVALID_FRIEND_REQUEST", "You cannot send a friend request to yourself.")
     target = db.get(models.User, body.to_user_id)
     if target is None:
-        raise APIError(404, "USER_NOT_FOUND", "유저를 찾을 수 없습니다.")
+        raise APIError(404, "USER_NOT_FOUND", "User not found.")
     if db.get(models.Friendship, (user.id, target.id)) is not None:
-        raise APIError(409, "ALREADY_FRIENDS", "이미 친구입니다.")
+        raise APIError(409, "ALREADY_FRIENDS", "You are already friends.")
 
-    R = models.FriendRequest
-    reverse = db.scalar(select(R).where(R.from_user_id == target.id, R.to_user_id == user.id, R.status == "PENDING"))
+    FriendRequest = models.FriendRequest
+    reverse = db.scalar(select(FriendRequest).where(
+        FriendRequest.from_user_id == target.id,
+        FriendRequest.to_user_id == user.id,
+        FriendRequest.status == "PENDING",
+    ))
     if reverse is not None:
-        # 상대가 이미 보낸 요청이 있으면 즉시 수락 처리한다. 응답의 status가 ACCEPTED.
+        # They already sent us a request, so accept it right away. The response status is ACCEPTED.
         _accept(db, reverse)
         db.commit()
         return reverse
 
-    req = db.scalar(select(R).where(R.from_user_id == user.id, R.to_user_id == target.id))
+    req = db.scalar(select(FriendRequest).where(
+        FriendRequest.from_user_id == user.id,
+        FriendRequest.to_user_id == target.id,
+    ))
     if req is None:
-        req = R(from_user_id=user.id, to_user_id=target.id, status="PENDING")
+        req = FriendRequest(from_user_id=user.id, to_user_id=target.id, status="PENDING")
         db.add(req)
     elif req.status == "PENDING":
-        raise APIError(409, "REQUEST_ALREADY_SENT", "이미 보낸 친구 요청이 있습니다.")
+        raise APIError(409, "REQUEST_ALREADY_SENT", "You already sent a friend request.")
     else:
-        # (from, to) 쌍마다 1행이라 재요청은 기존 행을 PENDING으로 되돌린다.
+        # There is one row per (from, to) pair, so sending again resets the old row to PENDING.
         req.status, req.created_at, req.responded_at = "PENDING", utc_now(), None
     db.commit()
     return req
@@ -152,7 +157,7 @@ def cancel_friend_request(request_id: int, db: db_dependency, user: user_depende
     db.commit()
 
 
-# --- 친구별 공유 수준 (내가 이 친구에게 보여 주는 수준) ----------------------
+# --- Per-friend share levels (what I show this friend) ----------------------
 
 @router.get("/friends/{user_id}/sharing", response_model=SharingLevels)
 def get_sharing(user_id: int, db: db_dependency, user: user_dependency):

@@ -1,11 +1,14 @@
-# 설치: ~/miniconda3/envs/eventapp/bin/python -m pip install -r requirements.txt
+# Install: ~/miniconda3/envs/eventapp/bin/python -m pip install -r requirements.txt
 fastapi==0.142.2
 uvicorn==0.54.0
 pydantic==2.13.5
 SQLAlchemy==2.1.1
 PyMySQL==1.2.3
 python-dotenv==1.2.3
+# Verify Supabase access tokens (JWT). Supabase Auth is called over HTTP with httpx.
+PyJWT[crypto]==2.15.1
+httpx==0.28.1
 
-# 테스트
+# Tests
 pytest==9.1.1
 httpx2==2.13.1

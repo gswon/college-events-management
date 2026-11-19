@@ -1,13 +1,16 @@
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from typing import Annotated
+
 from dotenv import load_dotenv
+from fastapi import Depends
+from sqlalchemy import create_engine
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 load_dotenv()
 
 URL_DATABASE = os.getenv("DATABASE_URL")
 
-# DB의 DATETIME은 전부 UTC. 세션 타임존을 고정해 CURRENT_TIMESTAMP도 UTC가 되게 한다.
+# Every DATETIME in the DB is UTC. Pinning the session time zone makes CURRENT_TIMESTAMP UTC too.
 engine = create_engine(
     URL_DATABASE,
     pool_pre_ping=True,
@@ -27,3 +30,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# Route parameter type for a request-scoped DB session: `def route(db: db_dependency): ...`
+db_dependency = Annotated[Session, Depends(get_db)]

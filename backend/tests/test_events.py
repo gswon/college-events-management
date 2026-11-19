@@ -1,13 +1,4 @@
-from datetime import datetime
-
-from tests.conftest import make_event, make_org
-
-# 실제 데이터와 겹치지 않도록 먼 미래 날짜만 쓴다.
-D = datetime(2099, 1, 10)
-
-
-def at(day: int, hour: int = 0, minute: int = 0) -> datetime:
-    return datetime(2099, 1, day, hour, minute)
+from tests.conftest import assert_error, at, make_event, make_org
 
 
 def events_in(client, start="2099-01-10T00:00:00Z", end="2099-01-11T00:00:00Z", **params):
@@ -16,14 +7,6 @@ def events_in(client, start="2099-01-10T00:00:00Z", end="2099-01-11T00:00:00Z", 
 
 def ids(response) -> list[int]:
     return [item["id"] for item in response.json()["items"]]
-
-
-def assert_error(response, status: int, code: str):
-    assert response.status_code == status, response.text
-    body = response.json()
-    assert set(body) == {"error"}
-    assert body["error"]["code"] == code
-    assert body["error"]["message"]
 
 
 # --- categories -----------------------------------------------------------
@@ -36,11 +19,11 @@ def test_categories_sorted(client, db):
     assert response.json()[0] == {"code": "SOCIAL", "name": "Social", "color": "#F59E0B"}
 
 
-# --- list: 기간 / 상태 / 필터 ---------------------------------------------
+# --- list: range / status / filters -----------------------------------------
 
 def test_overlap_boundaries(client, db):
-    ends_at_start = make_event(db, at(9, 22), at(10, 0))      # end_at == start → 제외
-    starts_at_end = make_event(db, at(11, 0), at(11, 2))      # start_at == end → 제외
+    ends_at_start = make_event(db, at(9, 22), at(10, 0))      # end_at == start -> excluded
+    starts_at_end = make_event(db, at(11, 0), at(11, 2))      # start_at == end -> excluded
     crosses_start = make_event(db, at(9, 23), at(10, 1))
     inside = make_event(db, at(10, 12), at(10, 13))
     spans = make_event(db, at(9, 0), at(12, 0))
@@ -82,7 +65,7 @@ def test_request_offset_is_converted_to_utc(client, db):
     assert early.id not in ids(response)
 
 
-# --- list: 응답 형태 / 페이지네이션 ----------------------------------------
+# --- list: response shape / pagination ---------------------------------------
 
 def test_list_item_shape(client, db):
     org = make_org(db, name="Chess Club")
@@ -131,18 +114,18 @@ def test_empty_result(client, db):
     assert events_in(client).json() == {"items": [], "next_cursor": None}
 
 
-# --- list: 에러 -----------------------------------------------------------
+# --- list: errors ---------------------------------------------------------
 
 def test_list_errors(client, db):
     assert_error(client.get("/api/v1/events", params={"end": "2099-01-11T00:00:00Z"}), 422, "VALIDATION_ERROR")
-    assert_error(events_in(client, start="2099-01-10T00:00:00"), 422, "VALIDATION_ERROR")  # 오프셋 없음
+    assert_error(events_in(client, start="2099-01-10T00:00:00"), 422, "VALIDATION_ERROR")  # no UTC offset
     assert_error(events_in(client, start="2099-01-11T00:00:00Z", end="2099-01-10T00:00:00Z"), 400, "INVALID_RANGE")
-    assert_error(events_in(client, end="2099-04-13T00:00:00Z"), 400, "INVALID_RANGE")  # 93일
-    assert events_in(client, end="2099-04-12T00:00:00Z").status_code == 200  # 92일
+    assert_error(events_in(client, end="2099-04-13T00:00:00Z"), 400, "INVALID_RANGE")  # 93 days
+    assert events_in(client, end="2099-04-12T00:00:00Z").status_code == 200  # 92 days
     assert_error(events_in(client, category="NOPE"), 400, "INVALID_CATEGORY")
     assert_error(events_in(client, cursor="not-a-cursor"), 400, "INVALID_CURSOR")
     assert_error(events_in(client, limit=101), 422, "VALIDATION_ERROR")
-    assert_error(events_in(client, followed_only="true"), 401, "AUTH_REQUIRED")
+    assert_error(events_in(client, followed_only="true"), 401, "AUTH_REQUIRED")  # anonymous
 
 
 # --- detail ---------------------------------------------------------------
@@ -172,7 +155,7 @@ def test_event_detail_not_found(client, db):
     assert_error(client.get("/api/v1/nope"), 404, "NOT_FOUND")
 
 
-# --- search (FULLTEXT, 커밋 필요) ------------------------------------------
+# --- search (FULLTEXT, needs committed rows) ---------------------------------
 
 def test_search(client, committed_db):
     fair = make_event(committed_db, at(10, 10), at(10, 11), title="Fall Career Fair")
@@ -182,12 +165,12 @@ def test_search(client, committed_db):
     committed_db.commit()
 
     assert ids(events_in(client, q="career")) == [fair.id]
-    assert ids(events_in(client, q="car")) == [fair.id]                 # 접두어
+    assert ids(events_in(client, q="car")) == [fair.id]                 # prefix
     assert ids(events_in(client, q="skill")) == [chess.id]              # description
-    assert ids(events_in(client, q="chess meetup")) == [chess.id]       # 모든 단어 AND
+    assert ids(events_in(client, q="chess meetup")) == [chess.id]       # every word must match
     assert ids(events_in(client, q="chess career")) == []
-    assert ids(events_in(client, q="AI")) == [ai.id]                    # 짧은 단어 → 제목 LIKE
-    assert ids(events_in(client, q='"career" +fair*')) == [fair.id]     # 연산자 문자 무시
+    assert ids(events_in(client, q="AI")) == [ai.id]                    # short word -> title LIKE
+    assert ids(events_in(client, q='"career" +fair*')) == [fair.id]     # operator characters are ignored
 
 
 def test_search_operators_only_is_ignored(client, db):

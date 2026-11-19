@@ -1,6 +1,5 @@
 import models
-from tests.conftest import as_user, make_entry, make_user
-from tests.test_events import assert_error, at
+from tests.conftest import as_user, assert_error, at, make_entry, make_user
 
 
 def entry_body(**fields) -> dict:
@@ -9,7 +8,7 @@ def entry_body(**fields) -> dict:
     return body
 
 
-# --- 생성 -----------------------------------------------------------------
+# --- Create ---------------------------------------------------------------
 
 def test_create_entry(client, db):
     me = make_user(db)
@@ -55,14 +54,14 @@ def test_create_validation(client, db):
         return client.post("/api/v1/entries", headers=headers, json=entry_body(**fields))
 
     assert_error(post(end_at="2099-01-10T13:59:00Z"), 400, "INVALID_RANGE")
-    assert post(end_at="2099-01-10T14:00:00Z").status_code == 201  # DB CHECK와 같게 end_at == start_at 허용
-    assert_error(post(start_at="2099-01-10T14:00:00"), 422, "VALIDATION_ERROR")  # 오프셋 없음
+    assert post(end_at="2099-01-10T14:00:00Z").status_code == 201  # end_at == start_at is allowed, like the DB CHECK
+    assert_error(post(start_at="2099-01-10T14:00:00"), 422, "VALIDATION_ERROR")  # no UTC offset
     assert_error(post(title="   "), 422, "VALIDATION_ERROR")
     assert_error(post(color="red"), 422, "VALIDATION_ERROR")
-    assert_error(post(visibility_override="DETAILS"), 422, "VALIDATION_ERROR")  # 친구 설정보다 더 공개 불가
+    assert_error(post(visibility_override="DETAILS"), 422, "VALIDATION_ERROR")  # cannot show more than the friend setting
 
 
-# --- 조회 / 수정 / 삭제 ----------------------------------------------------
+# --- Read / update / delete ------------------------------------------------
 
 def test_get_entry_owner_only(client, db):
     me, other = make_user(db), make_user(db)
@@ -89,7 +88,7 @@ def test_update_personal_entry(client, db):
         "Moved", "2099-01-10T16:00:00Z", "2099-01-10T17:00:00Z", None
     )
 
-    assert client.patch(url, headers=headers, json={"location": "Bobst"}).json()["title"] == "Moved"  # 보낸 필드만
+    assert client.patch(url, headers=headers, json={"location": "Bobst"}).json()["title"] == "Moved"  # only the fields sent change
     assert_error(client.patch(url, headers=headers, json={"end_at": "2099-01-10T15:00:00Z"}), 400, "INVALID_RANGE")
     assert_error(client.patch(url, headers=headers, json={"title": None}), 422, "VALIDATION_ERROR")
     assert_error(client.patch(url, headers=as_user(make_user(db)), json={"title": "x"}), 404, "ENTRY_NOT_FOUND")
@@ -113,7 +112,7 @@ def test_update_class_entry(client, db):
 def test_delete_entry(client, db):
     me, other = make_user(db), make_user(db)
     personal_id = make_entry(db, me, at(10, 14), at(10, 15)).id
-    class_id = make_entry(db, me, at(10, 16), at(10, 17), kind="CLASS").id  # 휴강 등으로 회차 하나 삭제
+    class_id = make_entry(db, me, at(10, 16), at(10, 17), kind="CLASS").id  # delete one class session, e.g. a cancelled class
 
     assert_error(client.delete(f"/api/v1/entries/{personal_id}", headers=as_user(other)), 404, "ENTRY_NOT_FOUND")
     for entry_id in (personal_id, class_id):

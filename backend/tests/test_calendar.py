@@ -1,6 +1,8 @@
+from sqlalchemy import event
+
 import models
-from tests.conftest import as_user, make_entry, make_event, make_user
-from tests.test_events import assert_error, at
+from database import engine
+from tests.conftest import as_user, assert_error, at, make_entry, make_event, make_user
 
 RANGE = {"start": "2099-01-10T00:00:00Z", "end": "2099-01-11T00:00:00Z"}
 
@@ -11,7 +13,7 @@ def save(db, user, event, status="GOING") -> None:
 
 
 def befriend(db, owner, viewer, **owner_levels) -> None:
-    """owner → viewer 행은 owner_levels로, 반대 행은 기본값으로."""
+    """The owner -> viewer row gets owner_levels; the reverse row gets the defaults."""
     defaults = dict(share_class="DETAILS", share_personal="BUSY", share_event="DETAILS")
     db.add(models.Friendship(user_id=owner.id, friend_id=viewer.id, **{**defaults, **owner_levels}))
     db.add(models.Friendship(user_id=viewer.id, friend_id=owner.id, **defaults))
@@ -26,7 +28,7 @@ def busy(start_hour: int, end_hour: int) -> dict:
     return {"type": "BUSY", "start_at": f"2099-01-10T{start_hour:02}:00:00Z", "end_at": f"2099-01-10T{end_hour:02}:00:00Z"}
 
 
-# --- 내 캘린더 --------------------------------------------------------------
+# --- My calendar ------------------------------------------------------------
 
 def test_my_calendar_merges_and_sorts(client, db):
     me = make_user(db)
@@ -38,8 +40,8 @@ def test_my_calendar_merges_and_sorts(client, db):
     hidden = make_event(db, at(10, 12), at(10, 13), status="HIDDEN")
     for event in (fair, cancelled, hidden):
         save(db, me, event)
-    make_entry(db, me, at(11, 9), at(11, 10))               # 기간 밖
-    make_entry(db, make_user(db), at(10, 9), at(10, 10))    # 남의 일정
+    make_entry(db, me, at(11, 9), at(11, 10))               # outside the range
+    make_entry(db, make_user(db), at(10, 9), at(10, 10))    # someone else's entry
 
     response = calendar(client, me)
     assert response.status_code == 200, response.text
@@ -48,7 +50,7 @@ def test_my_calendar_merges_and_sorts(client, db):
         ("PERSONAL", dentist.id), ("EVENT", cancelled.id), ("CLASS", lecture.id), ("EVENT", fair.id)
     ]
     assert items[1]["is_cancelled"] is True
-    # 본인에게는 visibility_override가 적용되지 않는다.
+    # visibility_override never applies to the owner.
     assert items[2] == {
         "type": "CLASS", "id": lecture.id, "title": "CSCI-UA 202", "start_at": "2099-01-10T14:00:00Z",
         "end_at": "2099-01-10T15:00:00Z", "is_all_day": False, "location": "WWH 101",
@@ -72,7 +74,7 @@ def test_my_calendar_include(client, db):
     assert_error(calendar(client, me, include=""), 400, "INVALID_INCLUDE")
 
 
-# --- 친구 캘린더: 공유 규칙 --------------------------------------------------
+# --- Friend calendar: sharing rules ------------------------------------------
 
 def test_friend_calendar_default_levels(client, db):
     owner, viewer = make_user(db), make_user(db)
@@ -89,8 +91,8 @@ def test_friend_calendar_default_levels(client, db):
     items = response.json()
     assert [i["type"] for i in items] == ["CLASS", "BUSY", "BUSY", "EVENT"]
     assert (items[0]["id"], items[0]["title"]) == (lecture.id, "CSCI-UA 202")
-    assert items[1] == busy(11, 12)  # override로 수업 하나만 BUSY
-    assert items[2] == busy(15, 16)  # 개인 일정 기본값 BUSY: 제목·ID 없음
+    assert items[1] == busy(11, 12)  # the override makes just this class BUSY
+    assert items[2] == busy(15, 16)  # personal entries default to BUSY: no title or id
     assert (items[3]["id"], items[3]["save_status"]) == (event.id, "INTERESTED")
 
 
@@ -98,11 +100,11 @@ def test_friend_calendar_lowered_levels(client, db):
     owner, viewer = make_user(db), make_user(db)
     befriend(db, owner, viewer, share_class="HIDDEN", share_personal="HIDDEN", share_event="BUSY")
     make_entry(db, owner, at(10, 9), at(10, 10), kind="CLASS")
-    make_entry(db, owner, at(10, 11), at(10, 12), visibility_override="BUSY")  # override로 더 공개할 수는 없다
+    make_entry(db, owner, at(10, 11), at(10, 12), visibility_override="BUSY")  # an override cannot show more
     save(db, owner, make_event(db, at(10, 18), at(10, 19)))
-    save(db, owner, make_event(db, at(10, 20), at(10, 21), status="CANCELLED"))  # 취소된 건 바쁜 시간 아님
+    save(db, owner, make_event(db, at(10, 20), at(10, 21), status="CANCELLED"))  # a cancelled event is not busy time
 
-    # 반대 방향(viewer → owner)은 DETAILS지만 owner → viewer 행만 본다.
+    # The reverse row (viewer -> owner) is DETAILS, but only the owner -> viewer row counts.
     assert calendar(client, viewer, f"/api/v1/users/{owner.id}/calendar").json() == [busy(18, 19)]
 
 
@@ -112,10 +114,10 @@ def test_friend_calendar_requires_friendship(client, db):
 
     assert_error(calendar(client, stranger, f"/api/v1/users/{owner.id}/calendar"), 403, "NOT_FRIENDS")
     assert_error(calendar(client, stranger, "/api/v1/users/999999999/calendar"), 403, "NOT_FRIENDS")
-    assert len(calendar(client, owner, f"/api/v1/users/{owner.id}/calendar").json()) == 1  # 본인은 전부
+    assert len(calendar(client, owner, f"/api/v1/users/{owner.id}/calendar").json()) == 1  # the owner sees everything
 
 
-# --- 겹쳐 보기 ---------------------------------------------------------------
+# --- Overlay ----------------------------------------------------------------
 
 def test_overlay(client, db):
     me, f1, f2, stranger = (make_user(db) for _ in range(4))
@@ -127,7 +129,7 @@ def test_overlay(client, db):
     response = calendar(client, me, "/api/v1/calendar/overlay", user_ids=f"{f2.id}, {f1.id},{me.id},{f1.id}")
     assert response.status_code == 200, response.text
     body = response.json()
-    assert [c["user_id"] for c in body] == [me.id, f2.id, f1.id]  # 나를 맨 앞에, 중복 제거
+    assert [c["user_id"] for c in body] == [me.id, f2.id, f1.id]  # me first, duplicates removed
     assert [i["id"] for i in body[0]["items"]] == [mine.id]
     assert body[1]["items"] == []
     assert body[2]["items"] == [busy(9, 10)]
@@ -137,6 +139,30 @@ def test_overlay(client, db):
     assert_error(calendar(client, me, overlay, user_ids="1,abc"), 400, "INVALID_USER_IDS")
     too_many = ",".join(str(10**12 + i) for i in range(11))
     assert_error(calendar(client, me, overlay, user_ids=too_many), 400, "INVALID_USER_IDS")
+
+
+def test_overlay_query_count_does_not_grow_with_friends(client, db):
+    me = make_user(db)
+    friends = [make_user(db) for _ in range(5)]
+    for friend in friends:
+        befriend(db, friend, me)
+        make_entry(db, friend, at(10, 9), at(10, 10))
+        save(db, friend, make_event(db, at(10, 18), at(10, 19)))
+
+    statements = []
+    def record(conn, cursor, statement, *args):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        response = calendar(client, me, "/api/v1/calendar/overlay", user_ids=",".join(str(f.id) for f in friends))
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    assert response.status_code == 200, response.text
+    assert all(len(c["items"]) == 2 for c in response.json()[1:])
+    # friendships + entries + saves, whatever the number of friends (was 1 + 3 per friend).
+    assert len(statements) <= 4, statements
 
 
 def test_calendar_errors(client, db):

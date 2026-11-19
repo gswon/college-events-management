@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from errors import register_error_handlers
-from tests.test_events import assert_error
+from tests.conftest import assert_error
 
 
 def test_unexpected_exception_returns_json_500():
