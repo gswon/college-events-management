@@ -1,4 +1,5 @@
-# 로컬 개발용 MySQL. 처음 실행할 때 NYUEventSchema.sql + schema_ingest.sql 이 자동으로 적용된다.
+# 로컬 개발용 MySQL. 처음 실행할 때 NYUEventSchema.sql + schema_ingest.sql + schema_colleges.sql 이 자동으로 적용된다.
+# (events/organizations.college_id 컬럼은 python -m ingest.migrate 또는 ingest.run --migrate 가 추가한다)
 #   docker compose up -d
 #   (스키마를 다시 적용하려면: docker compose down -v && docker compose up -d)
 # 프로젝트 이름 고정 (폴더 이름이 'data' 라서 다른 프로젝트와 헷갈리지 않게)
@@ -23,6 +24,7 @@ services:
       - mysql-data:/var/lib/mysql
       - ./NYUEventSchema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
       - ./schema_ingest.sql:/docker-entrypoint-initdb.d/002_schema_ingest.sql:ro
+      - ./schema_colleges.sql:/docker-entrypoint-initdb.d/003_schema_colleges.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s

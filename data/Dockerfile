@@ -12,12 +12,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY NYUEventSchema.sql schema_ingest.sql ./
+COPY NYUEventSchema.sql schema_ingest.sql schema_colleges.sql ./
 COPY ingest ./ingest
 
 RUN useradd --create-home --uid 10001 ingest
 USER ingest
 
 # --migrate: 없는 테이블만 만든다 (INGEST_APPLY_SCHEMA=all|ingest|none 으로 조절)
-# 소스 목록은 INGEST_SOURCES (기본: nyu_events,wasserman,athletics — 학사일정은 수동)
+# --migrate 는 colleges 테이블과 events/organizations.college_id 컬럼도 (없을 때만) 추가한다
+# 소스 목록은 INGEST_SOURCES (기본: NYU 4개 + princeton_events,princeton_athletics — 학사일정은 수동)
 CMD ["python", "-m", "ingest.run", "--migrate"]

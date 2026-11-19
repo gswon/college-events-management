@@ -10,6 +10,8 @@ from .textutil import ny_midnight_utc
 CATEGORIES = {"SOCIAL", "CAREER", "SPORTS", "ACADEMIC", "ARTS", "WELLNESS", "OTHER"}
 # 크롤러가 쓰는 상태. HIDDEN 은 관리자 전용이라 크롤러가 만들지 않는다.
 STATUSES = {"ACTIVE", "CANCELLED"}
+# colleges.code (schema_colleges.sql 의 초기값과 같아야 한다). 소스 모듈마다 COLLEGE 로 지정한다.
+COLLEGES = {"NYU", "PRINCETON"}
 
 DEFAULT_DURATION = timedelta(hours=1)   # 종료 시각이 없으면 start_at + 1시간
 
@@ -55,6 +57,7 @@ class Event:
     external_id: str
     title: str
     category: str                     # event_categories.code
+    college: str = "NYU"              # colleges.code — run.to_events() 가 소스 모듈의 COLLEGE 로 채운다
     is_all_day: bool = False
     start_at: datetime | None = None
     end_at: datetime | None = None
@@ -76,6 +79,8 @@ class Event:
     audience_text: str | None = None
     # DB에는 저장하지 않는다. 분류와 --dry-run 출력용.
     tags: list[str] = field(default_factory=list)
+    # 세부 그룹 (groups.py). 아직 DB에는 저장하지 않는다.
+    groups: list[str] = field(default_factory=list)
 
     def resolve_times(self) -> tuple[datetime, datetime]:
         """DB 에 넣을 (start_at, end_at) — 둘 다 aware UTC."""
@@ -89,6 +94,8 @@ class Event:
             raise ValueError("title 이 비어 있음")
         if self.category not in CATEGORIES:
             raise ValueError(f"알 수 없는 category: {self.category}")
+        if self.college not in COLLEGES:
+            raise ValueError(f"알 수 없는 college: {self.college}")
         if self.status not in STATUSES:
             raise ValueError(f"알 수 없는 status: {self.status}")
         if self.is_all_day:

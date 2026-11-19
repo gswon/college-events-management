@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 
 SLUG = "wasserman"
 SOURCE = "WASSERMAN"
+COLLEGE = "NYU"
 NAME = "Wasserman Center for Career Dev."
 BASE_URL = "https://wasserman.nyu.edu"
 FEED_URL = f"{BASE_URL}/events/feed/"

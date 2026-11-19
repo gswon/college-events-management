@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from ingest import config
-from ingest.migrate import statements
-from ingest.models import CATEGORIES
+from ingest.migrate import _COLLEGE_COLUMNS, statements
+from ingest.models import CATEGORIES, COLLEGES
 from ingest.sources import SOURCES
 from ingest.store import _EVENT_COLUMNS
 
@@ -142,15 +142,27 @@ def test_category_seed_matches_spec_and_code():
 
 
 def test_store_writes_only_existing_columns():
-    assert set(_EVENT_COLUMNS) <= set(_columns(APP["events"]))
+    # college_id 는 NYUEventSchema.sql 이 아니라 migrate._COLLEGE_COLUMNS 가 추가하는 컬럼
+    assert set(_EVENT_COLUMNS) - {"college_id"} <= set(_columns(APP["events"]))
+    assert "college_id" in _COLLEGE_COLUMNS["events"] and "college_id" in _COLLEGE_COLUMNS["organizations"]
     required = ({c for c, (_, nn) in SPEC_EVENT_COLUMNS.items() if nn} | {"external_id"}) - {"id", "created_at", "updated_at"}
     assert required <= set(_EVENT_COLUMNS)
 
 
 def test_source_codes():
     codes = {m.SOURCE for m in SOURCES.values()}
-    assert codes == {"NYU_EVENTS", "WASSERMAN", "ATHLETICS", "ACADEMIC"}
+    assert codes == {"NYU_EVENTS", "WASSERMAN", "ATHLETICS", "ACADEMIC", "TECH_NYU",
+                     "PRINCETON_EVENTS", "PRINCETON_ATHLETICS"}
+    assert {m.COLLEGE for m in SOURCES.values()} <= COLLEGES
     assert all(len(c) <= 50 and c.isupper() for c in codes)
+
+
+def test_college_seed_matches_code():
+    sql = (ROOT / "schema_colleges.sql").read_text(encoding="utf-8")
+    seeded = set(re.findall(r"\(\d+, '([A-Z_]+)'", sql))
+    assert seeded == COLLEGES
+    assert re.search(r"\(1, 'NYU'", sql)          # events.college_id 기본값 1 = NYU
+    assert all(s.strip() for s in statements(ROOT / "schema_colleges.sql"))
 
 
 def test_config_reads_railway_url(monkeypatch):

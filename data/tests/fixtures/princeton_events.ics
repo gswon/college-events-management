@@ -1,0 +1,150 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:princeton-events
+X-WR-CALNAME:Princeton University Events
+BEGIN:VEVENT
+UID:338051-0
+DTSTART:20261114T130000Z
+SEQUENCE:0
+TRANSP:TRANSPARENT
+DTEND:20261115T010000Z
+URL:https://goprincetontigers.com/calendar
+LOCATION:Dillon Gymnasium\, Athletics - Away\, Away (Off Campus)
+SUMMARY:M Volleyball Fall Classic 
+CLASS:PUBLIC
+DESCRIPTION:M Volleyball Fall Classic
+DTSTAMP:20260917T054614Z
+END:VEVENT
+BEGIN:VEVENT
+UID:339836-0
+DTSTART:20261114T140000Z
+SEQUENCE:0
+TRANSP:TRANSPARENT
+DTEND:20261115T013000Z
+URL:https://arts.princeton.edu/events/2026/site-exhibition-carlos-agredano
+LOCATION:Hurley Gallery\, Lewis Arts Complex
+SUMMARY:Site: Exhibition by Carlos Agredano
+CLASS:PUBLIC
+DESCRIPTION:Recent 2025-26 Hodder Fellow Carlos Agredano showcases new work
+  in the exhibition\, Site\, in the Hurley Gallery at the Lewis Arts comple
+ x.Site follows the…
+DTSTAMP:20261112T163230Z
+END:VEVENT
+BEGIN:VEVENT
+UID:341376-0
+DTSTART:20261114T180000Z
+SEQUENCE:0
+TRANSP:TRANSPARENT
+DTEND:20261114T213000Z
+URL:https://artmuseum.princeton.edu/exhibitions-events/events/2026/earth-ci
+ ty-building-workshop-2026-11-14?instance=2026-11-14T13:00:00-05:00
+LOCATION:Art Museum\, 136 Creativity Lab
+SUMMARY:Earth City Building Workshop
+CLASS:PUBLIC
+DESCRIPTION:An all-ages collaborative building project\n\nStop by the Creat
+ ivity Labs to add something using air-dry clay and wood to Earth City\, a 
+ miniature metropolis…
+DTSTAMP:20261111T154553Z
+END:VEVENT
+BEGIN:VEVENT
+UID:338061-0
+DTSTART:20261115T000000Z
+SEQUENCE:0
+TRANSP:TRANSPARENT
+DTEND:20261115T040000Z
+URL:https://www.princeton.edu/events/2026/magic-gathering-club-meeting-9
+LOCATION:Julis Romo Rabinowitz Building\, A98
+SUMMARY:Magic: The Gathering Club Meeting
+CLASS:PUBLIC
+DESCRIPTION:Princeton Magic: The Gathering Club meets every Saturday at 7PM
+  in JRR A98 for a night of Commander games\, free draft\, and good company
+ . Whether you've never…
+DTSTAMP:20260917T054614Z
+END:VEVENT
+BEGIN:VEVENT
+UID:338066-0
+DTSTART:20261115T160000Z
+SEQUENCE:0
+TRANSP:TRANSPARENT
+DTEND:20261115T170000Z
+URL:https://www.princeton.edu/events/2026/worship-service-university-chapel
+ -10
+LOCATION:Invite Only
+SUMMARY:Worship Service in the University Chapel
+CLASS:PUBLIC
+DESCRIPTION:An ecumenical Worship Service that draws students\, faculty\, s
+ taff\, and community members together to hear God's word\, sing praises\, 
+ and pray for the University…
+DTSTAMP:20260917T054614Z
+END:VEVENT
+BEGIN:VEVENT
+UID:341091-0
+DTSTART:20261117T213000Z
+SEQUENCE:0
+TRANSP:TRANSPARENT
+DTEND:20261117T223000Z
+URL:https://arts.princeton.edu/events/2026/fall-2026-vis-program-info-sessi
+ on
+LOCATION:Room 219\, 185 Nassau Street
+SUMMARY:Fall 2026 VIS Program Info Session
+CLASS:PUBLIC
+DESCRIPTION:\n  The Program in Visual Arts hosts an info session for all so
+ phomores interested in the program minor and the Art…
+DTSTAMP:20261111T210232Z
+END:VEVENT
+BEGIN:VEVENT
+UID:338091-0
+DTSTART:20261118T200000Z
+SEQUENCE:0
+TRANSP:TRANSPARENT
+DTEND:20261118T220000Z
+URL:https://www.princeton.edu/events/2026/pace-center-summer-internships-dr
+ op-6
+LOCATION:Frist Campus Center\, Table C2
+SUMMARY:Pace Center Summer Internships Drop-in
+CLASS:PUBLIC
+DESCRIPTION:Meet Pace Center staff to learn about all the summer service in
+ ternship opportunities available to you!
+DTSTAMP:20260917T054614Z
+END:VEVENT
+BEGIN:VEVENT
+UID:340736-0
+DTSTART:20261116T143000Z
+SEQUENCE:0
+TRANSP:TRANSPARENT
+DTEND:20261116T230000Z
+URL:https://arts.princeton.edu/events/2026/do-not-sit-exhibition-samuel-eli
+ jah-lee-and-grace-kaneshiro
+LOCATION:Hagan Gallery\, 185 Nassau Street
+SUMMARY:Do Not Sit: Exhibition by Samuel Elijah Lee and Grace Kaneshiro
+CLASS:PUBLIC
+DESCRIPTION:The Program in Visual Arts and Department of Art…
+DTSTAMP:20261111T053043Z
+END:VEVENT
+BEGIN:VEVENT
+UID:341496-0
+DTSTART:20261201T220000Z
+SEQUENCE:0
+TRANSP:TRANSPARENT
+DTEND:20261202T000000Z
+URL:https://ihum.princeton.edu/events/ihum-open-house-6
+LOCATION:Chancellor Green\, 101 Rotunda
+SUMMARY:IHUM Open House
+CLASS:PUBLIC
+DESCRIPTION:The Interdisciplinary Doctoral Program in the Humanities (IHUM)
+  invites you to our annual Open House\, where you can meet IHUM students a
+ nd faculty\, learn about…
+DTSTAMP:20261113T164653Z
+END:VEVENT
+BEGIN:VEVENT
+UID:331606-0
+DTSTART:20261126T050000Z
+SEQUENCE:0
+TRANSP:TRANSPARENT
+DTEND:20261128T044500Z
+URL:https://www.princeton.edu/events/2026/university-holiday-thanksgiving
+SUMMARY:University Holiday - Thanksgiving
+CLASS:PUBLIC
+DTSTAMP:20260605T141825Z
+END:VEVENT
+END:VCALENDAR

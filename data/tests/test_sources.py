@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from ingest.sources import academic, athletics, nyu_events, wasserman
+from ingest.sources import academic, athletics, nyu_events, technyu, wasserman
 from ingest.sources.academic import parse_date_range
 
 UTC = timezone.utc
@@ -170,14 +170,27 @@ def test_parse_date_range(text, expected):
 
 
 def test_nyu_events_category_rules():
-    def cat(**row):
-        return nyu_events._category(row, [t.lower() for t in row.get("tags", [])])
+    def cat(title="Untitled", **row):
+        return nyu_events._category(row, [t.lower() for t in row.get("tags", [])], title)
     assert cat(tags=["mindfulnyu", "athletics", "free"], group_title="Global Spiritual Life at NYU") == "WELLNESS"
     assert cat(tags=["law", "dates and deadlines"], group_title="School of Law") == "ACADEMIC"
     assert cat(tags=["career", "lgbtq"], group_title="LGBTQ+ Center") == "CAREER"
     assert cat(tags=["music", "theater"], group_title="Casa Italiana") == "ARTS"
-    assert cat(tags=["entrepreneur"], group_title="NYU Entrepreneurial Institute") == "OTHER"
+    assert cat(tags=["entrepreneur"], group_title="NYU Entrepreneurial Institute") == "ACADEMIC"
+    assert cat(group_title="Faculty Housing and Residential Services") == "OTHER"
+    # Engage 동아리 행사는 SOCIAL, 단 제목이 분명하면 제목을 따른다
     assert cat(url="https://engage.nyu.edu/event/1", tags=["career"]) == "SOCIAL"
+    assert cat("ASME x Tandon Career Hub: Resume Workshop", url="https://engage.nyu.edu/event/2") == "CAREER"
+    # 제목이 태그보다 먼저: Box Office 의 경기에 'arts', 공연에 'athletics' 태그가 붙어 있었다
+    assert cat("NY Jets vs. New England Patriots", tags=["football", "jets", "arts"],
+               group_title="NYU Box Office - Discounted Tickets") == "SPORTS"
+    assert cat("Billy Crystal: 860", tags=["broadway", "athletics"],
+               group_title="NYU Box Office - Discounted Tickets") == "ARTS"
+    # 그룹 이름의 health / 'Arts & Science' 에 끌려가지 않는다
+    assert cat("Optimizing PrEP for HIV Care", group_title="School of Global Public Health") == "ACADEMIC"
+    assert cat("Naomi Saphra, When can we predict model behavior?", group_title="Arts &amp; Science",
+               tags=["cas", "college of arts & science"]) == "ACADEMIC"
+    assert cat("Abercrombie & Fitch v. Hunting World", url="https://engage.nyu.edu/event/3") == "SOCIAL"
 
 
 def test_nyu_events_skips_athletics_group(web):
@@ -197,3 +210,60 @@ def test_wasserman_virtual_location():
                "event_date": "2026-10-15"}
     event = wasserman.normalize(payload)
     assert event.is_online and event.location_name is None and event.address is None
+
+
+def test_technyu_fetch_and_normalize(web):
+    result = technyu.fetch()
+    items = _by_id(result)
+    assert result.complete is True
+    assert set(items) == {"evt-iBjn7B7dMkXAl7q", "evt-YHVKt6mHdaCSSb8", "evt-Wrqm90rHgmcyum5",
+                          "evt-E1b7uZaUOsfple3", "evt-YDNXdMzA8VY1BFt"}
+
+    hack = _normalize(technyu, items["evt-YDNXdMzA8VY1BFt"])
+    assert hack.title == "Tech@NYU x Claude: Hackday 007" and hack.category == "CAREER"
+    assert hack.start_at == datetime(2026, 11, 10, 22, 0, tzinfo=UTC)
+    assert hack.end_at == datetime(2026, 11, 11, 0, 0, tzinfo=UTC)
+    assert hack.location_name == "NYU Global Center for Academic and Spiritual Life - Room GC 269"
+    assert hack.address == "238 Thompson St, New York, NY 10012, USA"
+    assert hack.source_url == hack.registration_url == "https://luma.com/30c62y79"
+    assert hack.organization.slug == "tech-at-nyu" and hack.host_name == "Tech@NYU"
+    assert hack.description.startswith("Hosted by ")
+
+    hidden = _normalize(technyu, items["evt-iBjn7B7dMkXAl7q"])   # 장소는 신청자에게만 공개
+    assert (hidden.location_name, hidden.address) == (None, None)
+    assert hidden.source_url == "https://luma.com/bqict3ez"
+
+    stern = _normalize(technyu, items["evt-YHVKt6mHdaCSSb8"])    # 주소 없이 강의실 이름만
+    assert (stern.location_name, stern.address) == ("Stern T201", None)
+
+    park = _normalize(technyu, items["evt-Wrqm90rHgmcyum5"])
+    assert park.category == "SOCIAL"
+    assert park.location_name == "Washington Square Park - By the Arch"
+
+
+def _add_engage_rows(web, *rows):
+    import json
+    body = json.loads(web.pages["events.nyu.edu/live/json/events"])
+    base = body["data"][0]
+    body["data"] += [{**base, "id": 900 + i, "title": title, "date_utc": start, "date2_utc": None,
+                      "url": f"https://engage.nyu.edu/event/{900 + i}", "repeats": None}
+                     for i, (title, start) in enumerate(rows)]
+    web.pages["events.nyu.edu/live/json/events"] = json.dumps(body).encode()
+
+
+def test_nyu_events_drops_technyu_duplicates(web):
+    # Luma 'Tech@NYU x Claude: Hackday 007' 은 2026-11-10 22:00 UTC 시작
+    _add_engage_rows(web,
+                     ("Tech@NYU Hackdays", "2026-11-10 22:00:00"),           # 같은 시각 → 중복
+                     ("PETAL x Tech@NYU Speaker Event", "2026-11-10 21:30:00"),  # 1시간 이내 → 중복
+                     ("Tech@NYU Mentorship Meeting", "2026-11-17 23:30:00"),  # Luma 에 없음 → 남김
+                     ("Chess Club Hackday", "2026-11-10 22:00:00"))           # Tech@NYU 아님 → 남김
+    ids = set(_by_id(nyu_events.fetch()))
+    assert "engage-900" not in ids and "engage-901" not in ids
+    assert {"engage-902", "engage-903"} <= ids
+
+
+def test_nyu_events_keeps_technyu_rows_when_luma_fails(web):
+    _add_engage_rows(web, ("Tech@NYU Hackdays", "2026-11-10 22:00:00"))
+    web.pages["api.lu.ma/ics/get"] = None
+    assert "engage-900" in _by_id(nyu_events.fetch())
