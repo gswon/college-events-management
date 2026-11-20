@@ -1,4 +1,5 @@
 import { CampusEvent } from '../data/events';
+import { authenticatedFetch } from './authenticatedFetch';
 export type Page<T> = { items: T[]; next_cursor: string | null };
 export type User = { id: number; display_name: string; profile_image_url?: string | null };
 export type EventCategory = {
@@ -9,9 +10,8 @@ export type EventCategory = {
 // Pass the access token from the team's authentication flow. Do not hard-code it.
 export function createApi(baseUrl: string, getAccessToken: () => string | undefined) {
   async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-    const token = getAccessToken();
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/v1${path}`, {
-      headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal,
+    const response = await authenticatedFetch(`${baseUrl.replace(/\/$/, '')}/api/v1${path}`, {
+      headers: { Accept: 'application/json' }, signal,
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);

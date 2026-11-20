@@ -1,9 +1,7 @@
+import { authenticatedFetch } from './authenticatedFetch';
 
-const BASE_URL = 'http://127.0.0.1:8001/api/v1';
-
-// LOCAL DEVELOPMENT ONLY.
-// The backend currently uses X-User-Id instead of production authentication.
-const DEV_USER_ID = 1;
+declare const process: { env: { EXPO_PUBLIC_API_BASE_URL?: string } };
+const BASE_URL = `${process.env.EXPO_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8002'}/api/v1`;
 
 export type CalendarItem = {
   type: 'PERSONAL' | 'CLASS' | 'EVENT' | 'BUSY';
@@ -49,30 +47,26 @@ export type FriendRequest = {
   created_at: string;
 };
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-  userId: number = DEV_USER_ID
-): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await authenticatedFetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      'X-User-Id': String(userId),
-      ...options.headers,
+      ...(options.headers as Record<string, string> | undefined),
     },
   });
-
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(
-      body?.error?.message ?? `Request failed (${response.status})`
-    );
+    throw new Error(body?.error?.message ?? `Request failed (${response.status})`);
   }
-
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
+
+export type UserSearchResult = FriendUser & {
+  friend_status: 'NONE' | 'REQUESTED' | 'RECEIVED' | 'FRIENDS';
+};
 
 export type UserCalendar = {
   user_id: number;
@@ -105,22 +99,11 @@ export const calendarFriendsApi = {
       body: JSON.stringify(changes),
     }),
 
-  deletePersonalEntry: async (entryId: number): Promise<void> => {
-    const response = await fetch(`${BASE_URL}/entries/${entryId}`, {
-      method: 'DELETE',
-      headers: {
-        Accept: 'application/json',
-        'X-User-Id': String(DEV_USER_ID),
-      },
-    });
+  deletePersonalEntry: (entryId: number) =>
+    request<void>(`/entries/${entryId}`, { method: 'DELETE' }),
 
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new Error(
-        body?.error?.message ?? `Delete failed (${response.status})`
-      );
-    }
-  },
+  searchUsers: (query: string) =>
+    request<UserSearchResult[]>(`/users/search?q=${encodeURIComponent(query.trim())}`),
 
   getFriends: () =>
     request<Friend[]>('/friends'),
@@ -147,44 +130,11 @@ export const calendarFriendsApi = {
       method: 'POST',
     }),
 
-  cancelFriendRequest: async (requestId: number): Promise<void> => {
-    const response = await fetch(
-      `${BASE_URL}/friends/requests/${requestId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          Accept: 'application/json',
-          'X-User-Id': String(DEV_USER_ID),
-        },
-      }
-    );
+  cancelFriendRequest: (requestId: number) =>
+    request<void>(`/friends/requests/${requestId}`, { method: 'DELETE' }),
 
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new Error(
-        body?.error?.message ??
-          `Failed to cancel request (${response.status})`
-      );
-    }
-  },
-
-  removeFriend: async (userId: number): Promise<void> => {
-    const response = await fetch(`${BASE_URL}/friends/${userId}`, {
-      method: 'DELETE',
-      headers: {
-        Accept: 'application/json',
-        'X-User-Id': String(DEV_USER_ID),
-      },
-    });
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new Error(
-        body?.error?.message ??
-          `Failed to remove friend (${response.status})`
-      );
-    }
-  },
+  removeFriend: (userId: number) =>
+    request<void>(`/friends/${userId}`, { method: 'DELETE' }),
 
   getFriendSharing: (userId: number) =>
     request<Friend['sharing']>(`/friends/${userId}/sharing`),

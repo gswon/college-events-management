@@ -1,7 +1,3 @@
-import {
-  loadPersonalEvents,
-  savePersonalEvent,
-} from '../services/personalEvents';
 import AddEventScreen, { type PersonalEvent } from './AddEventScreen';
 import AddFriendsSheet from './AddFriendsSheet';
 import FriendProfileSheet from './FriendProfileSheet';
@@ -24,7 +20,8 @@ import { createApi } from '../services/api';
 import { calendarFriendsApi } from '../services/calendarFriendsApi';
 import type { CampusEvent } from '../data/events';
 
-const api = createApi('http://127.0.0.1:8000', () => undefined);
+declare const process: { env: { EXPO_PUBLIC_API_BASE_URL?: string } };
+const api = createApi(process.env.EXPO_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8002', () => undefined);
 
 type CalendarEvent = CampusEvent & {
   end_at?: string | null;
@@ -80,10 +77,12 @@ function formatSelectedDate(date: Date) {
 
 type CalendarScreenProps = {
   onOpenFriends: () => void;
+  currentUserId: number;
 };
 
 export default function CalendarScreen({
   onOpenFriends,
+  currentUserId,
 }: CalendarScreenProps) {
   const [selectedDate, setSelectedDate] = useState(new Date());
 
@@ -119,7 +118,9 @@ export default function CalendarScreen({
   const [previewProfileId, setPreviewProfileId] = useState<string | null>(null);
   const [profileFriend, setProfileFriend] = useState<{ id: number; name: string } | null>(null);
   const [editingEvent, setEditingEvent] = useState<PersonalEvent | null>(null);
-  const [personalEvents, setPersonalEvents] = useState<PersonalEvent[]>([]);
+  // Legacy device-only events are intentionally not displayed in authenticated accounts.
+  // Original local data remains untouched in device storage.
+  const personalEvents: PersonalEvent[] = [];
   const [overlayFriends, setOverlayFriends] = useState<
     { id: number; name: string }[]
   >([]);
@@ -135,6 +136,15 @@ export default function CalendarScreen({
   >([]);
   const [overlayLoading, setOverlayLoading] = useState(false);
   const [overlayError, setOverlayError] = useState<string | null>(null);
+  // FRIEND_SCHEDULE_DEMO_V1: Visual QA only. Never writes to Backend or AsyncStorage.
+  // Select a demo number in Friends; on the 20th of the displayed month the
+  // Calendar marker and example event cards show the same number of friends.
+  const [demoFriendCount, setDemoFriendCount] = useState<0 | 3 | 7 | 8 | 10>(0);
+  const demoFriendNames = [
+    'Alex Kim', 'Jordan Lee', 'Taylor Park', 'Morgan Chen', 'Casey Nguyen',
+    'Riley Patel', 'Jamie Rivera', 'Avery Shah', 'Skyler Davis', 'Quinn Wong',
+  ];
+
 
   const [backendEvents, setBackendEvents] = useState<PersonalEvent[]>([]);
   const allPersonalEvents = [...personalEvents, ...backendEvents];
@@ -145,28 +155,6 @@ export default function CalendarScreen({
     isSameDay(new Date(event.start_at), date)
   );
 }
-  useEffect(() => {
-  let mounted = true;
-
-  async function loadSavedEvents() {
-    try {
-      const saved = await loadPersonalEvents();
-
-      if (mounted) {
-        setPersonalEvents(saved);
-      }
-    } catch (error) {
-      console.error('Failed to load personal events:', error);
-    }
-  }
-
-  void loadSavedEvents();
-
-  return () => {
-    mounted = false;
-  };
-}, []);
-
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,7 +162,7 @@ export default function CalendarScreen({
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
 
-  // Load personal events saved in the local test Backend (port 8001).
+  // Load signed-in user calendar entries from the authenticated Backend.
   useEffect(() => {
     let active = true;
 
@@ -376,11 +364,11 @@ const selectedEvents = events
         const combined = calendars
           .filter(
             (calendar) =>
-              calendar.user_id === 1 ||
+              calendar.user_id === currentUserId ||
               selected.has(calendar.user_id)
           )
           .flatMap((calendar) => {
-            const isMine = calendar.user_id === 1;
+            const isMine = calendar.user_id === currentUserId;
             const friend = overlayFriends.find(
               (item) => item.id === calendar.user_id
             );
@@ -409,7 +397,7 @@ const selectedEvents = events
       });
 
     return () => { active = false; };
-  }, [activeTab, year, month, selectedFriendIds, overlayFriends]);
+  }, [activeTab, year, month, selectedFriendIds, overlayFriends, currentUserId]);
 
   const selectedOverlayItems = overlayItems
     .filter(({ item }) => {
@@ -721,16 +709,21 @@ const selectedEvents = events
             selectedDate.getDate() === day;
 
 
+          // Keep the dark background behind white +8/+10 rings,
+          // even when a different date is selected.
+          const actualFriendCount = new Set(
+            overlayItems
+              .filter(({ item }) =>
+                new Date(item.start_at) < new Date(year, month, day + 1) &&
+                new Date(item.end_at) > new Date(year, month, day)
+              )
+              .map(({ userId }) => userId)
+          ).size;
+
           const persistentRingDay =
             activeTab === 'Friends' &&
-            new Set(
-              overlayItems
-                .filter(({ item }) =>
-                  new Date(item.start_at) < new Date(year, month, day + 1) &&
-                  new Date(item.end_at) > new Date(year, month, day)
-                )
-                .map(({ userId }) => userId)
-            ).size >= 8;
+            ((demoFriendCount >= 8 && day === 20) ||
+              (demoFriendCount === 0 && actualFriendCount >= 8));
 
           return (
             <Pressable
@@ -757,7 +750,7 @@ const selectedEvents = events
                   const dayEnd = new Date(year, month, day + 1);
                   // In Friends, count unique friends with schedule entries, not individual events.
                   const friendIds = Array.from(new Set(overlayItems
-                    .filter(({item}) => new Date(item.start_at) < dayEnd && new Date(item.end_at) > dayStart)
+                    .filter(({userId, item}) => userId !== currentUserId && new Date(item.start_at) < dayEnd && new Date(item.end_at) > dayStart)
                     .map(({userId}) => userId))).sort((a,b) => a-b);
                   const myEventsCount = events.filter(event => {
                     const start = getEventDate(event);
@@ -766,10 +759,10 @@ const selectedEvents = events
                   }).length + allPersonalEvents.filter(event =>
                     new Date(event.start_at) < dayEnd && new Date(event.end_at) > dayStart
                   ).length;
-                  const count = activeTab === 'Friends' ? friendIds.length : myEventsCount;
+                  const count = activeTab === 'Friends' && demoFriendCount > 0 && day === 20 ? demoFriendCount : activeTab === 'Friends' ? friendIds.length : myEventsCount;
                   if (!count) return null;
                   if (count >= 8) {
-                    return <View style={[styles.countRing, selected && styles.selectedCountRing]}>
+                    return <View style={[styles.countRing, styles.selectedCountRing]}>
                       <Text style={styles.countRingText}>+{count}</Text>
                     </View>;
                   }
@@ -858,6 +851,32 @@ const selectedEvents = events
             >
               Choose friends to compare schedules with your own.
             </Text>
+
+            {/* FRIEND_SCHEDULE_DEMO_V1: Temporary mock schedule preview controls */}
+            <View style={{ marginBottom: 16, padding: 12, backgroundColor: '#F7F3FB', borderRadius: 9 }}>
+              <Text style={{ fontSize: 12, color: '#57068C', fontWeight: '700', marginBottom: 5 }}>
+                TEST PREVIEW — NOT REAL FRIENDS
+              </Text>
+              <Text style={{ fontSize: 11, color: '#686371', marginBottom: 9 }}>
+                Select 3, 7, 8 or 10; then tap day 20 to see matching mock schedules.
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {([0, 3, 7, 8, 10] as const).map(n => (
+                  <Pressable key={`demo-${n}`} onPress={() => {
+                    setDemoFriendCount(n);
+                    if (n !== 0) setSelectedDate(new Date(year, month, 20));
+                  }}
+                    style={{ paddingVertical: 7, paddingHorizontal: 11, borderRadius: 7,
+                      backgroundColor: demoFriendCount === n ? '#57068C' : '#FFFFFF',
+                      borderWidth: 1, borderColor: demoFriendCount === n ? '#57068C' : '#DBD5E4' }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600',
+                      color: demoFriendCount === n ? '#FFFFFF' : '#51475D' }}>
+                      {n === 0 ? 'OFF' : `${n} friends`}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
 
             {overlayFriends.length === 0 && previewFriends.length === 0 ? (
               <Text style={styles.emptyMessage}>
@@ -1019,7 +1038,35 @@ const selectedEvents = events
                 Figma preview: {previewFriends.filter(person => selectedPreviewIds.includes(person.id)).map(person => person.name).join(', ')}. These example friends have no server schedule yet.
               </Text>
             )}
-            {overlayLoading ? (
+            {demoFriendCount > 0 && selectedDate.getDate() === 20 &&
+              selectedDate.getMonth() === month && selectedDate.getFullYear() === year ? (
+              <View style={{ paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEEEEE' }}>
+                <Text style={{ color: '#57068C', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
+                  PREVIEW ONLY — {demoFriendCount} FRIEND SCHEDULES
+                </Text>
+                <Text style={{ color: '#9999A3', fontSize: 11, marginBottom: 16 }}>
+                  These are sample events for layout testing; nothing is saved.
+                </Text>
+                {demoFriendNames.slice(0, demoFriendCount).map((name, index) => (
+                  <View key={`mock-friend-${index}`} style={{
+                    paddingVertical: 12, paddingHorizontal: 13, marginBottom: 9,
+                    borderRadius: 9, backgroundColor: '#F7F7F8',
+                    borderLeftWidth: 3, borderLeftColor: ['#9BC9DE', '#CB927A', '#B1A2D3'][index % 3]
+                  }}>
+                    <Text style={{ color: '#9999A3', fontSize: 10, marginBottom: 4 }}>
+                      {`${9 + Math.floor(index / 2)}:${index % 2 ? '30' : '00'} AM`} · DEMO
+                    </Text>
+                    <Text style={{ color: '#1C1C1E', fontWeight: '700', fontSize: 14 }}>
+                      {`${name} — Study Session`}
+                    </Text>
+                    <Text style={{ color: '#858590', fontSize: 11, marginTop: 4 }}>
+                      Preview calendar event · Bobst Library
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : overlayLoading ? (
+
               <ActivityIndicator color="#57068C" />
             ) : overlayError ? (
               <Text style={styles.emptyMessage}>{overlayError}</Text>

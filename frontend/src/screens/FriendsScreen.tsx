@@ -10,12 +10,14 @@ import {
   StyleSheet,
   Text,
   View,
+  TextInput,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import {
   calendarFriendsApi,
   type Friend,
   type FriendRequest,
+  type UserSearchResult,
 } from '../services/calendarFriendsApi';
 
 type Props = {
@@ -31,6 +33,11 @@ export default function FriendsScreen({ onBack }: Props) {
   const [loading, setLoading] = useState(true);
   const [busyRequestId, setBusyRequestId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [sendingUserId, setSendingUserId] = useState<number | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -63,6 +70,46 @@ export default function FriendsScreen({ onBack }: Props) {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const query = searchText.trim();
+    if (!query || (!query.includes('@') && query.length < 2)) {
+      setSearchResults([]);
+      setSearchError(null);
+      setSearching(false);
+      return;
+    }
+    let active = true;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      setSearchError(null);
+      try {
+        const people = await calendarFriendsApi.searchUsers(query);
+        if (active) setSearchResults(people);
+      } catch (error) {
+        if (active) setSearchError(error instanceof Error ? error.message : 'Search failed.');
+      } finally {
+        if (active) setSearching(false);
+      }
+    }, 350);
+    return () => { active = false; clearTimeout(timer); };
+  }, [searchText]);
+
+  async function sendRequestTo(person: UserSearchResult) {
+    if (sendingUserId !== null || person.friend_status !== 'NONE') return;
+    setSendingUserId(person.id);
+    try {
+      await calendarFriendsApi.sendFriendRequest(person.id);
+      setSearchResults(previous => previous.map(item =>
+        item.id === person.id ? { ...item, friend_status: 'REQUESTED' } : item
+      ));
+      await loadData();
+    } catch (error) {
+      Alert.alert('Request failed', error instanceof Error ? error.message : 'Try again.');
+    } finally {
+      setSendingUserId(null);
+    }
+  }
 
   function confirmRemoveFriend(friend: Friend) {
     Alert.alert(
@@ -204,33 +251,46 @@ export default function FriendsScreen({ onBack }: Props) {
         SEARCH FRIENDS
       </Text>
 
-      <Pressable
-        style={[
-          styles.searchBox,
-          {
-            marginTop: 0,
-            height: 44,
-            borderRadius: 12,
-            borderColor: '#ECECEF',
-            paddingHorizontal: 13,
-          },
-        ]}
-        onPress={() =>
-          Alert.alert(
-            'Search unavailable',
-            'The backend team still needs to add the user search API.'
-          )
-        }
-      >
-        <Text
-          style={[
-            styles.searchPlaceholder,
-            {fontSize: 12, color: '#B7B7BC'},
-          ]}
-        >
-          Search by name
-        </Text>
-      </Pressable>
+      <TextInput
+        style={[styles.searchBox, {
+          marginTop: 0, height: 44, borderRadius: 12,
+          borderColor: '#ECECEF', paddingHorizontal: 13,
+          fontSize: 12, color: '#242424',
+        }]}
+        value={searchText}
+        onChangeText={setSearchText}
+        placeholder="Search by name or exact NYU email"
+        placeholderTextColor="#B7B7BC"
+        autoCapitalize="none"
+        autoCorrect={false}
+        accessibilityLabel="Search users"
+      />
+      {searching && <ActivityIndicator size="small" color="#57068C" />}
+      {searchError && <Text style={styles.emptyText}>{searchError}</Text>}
+      {searchResults.map(person => (
+        <View key={`search-${person.id}`} style={styles.personRow}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {person.display_name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}
+            </Text>
+          </View>
+          <View style={styles.personInfo}>
+            <Text style={styles.personName}>{person.display_name}</Text>
+            <Text style={styles.personDescription}>{person.friend_status === 'NONE' ? 'NYU member' : person.friend_status === 'FRIENDS' ? 'Friends' : person.friend_status === 'RECEIVED' ? 'Sent you a request below' : 'Request sent'}</Text>
+          </View>
+          {person.friend_status === 'NONE' && (
+            <Pressable
+              disabled={sendingUserId !== null}
+              onPress={() => void sendRequestTo(person)}
+              accessibilityLabel={`Add ${person.display_name}`}
+            >
+              <Text style={{ color: '#57068C', fontSize: 12, fontWeight: '700' }}>
+                {sendingUserId === person.id ? 'Sending...' : 'Add'}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      ))}
 
       {loading ? (
         <ActivityIndicator

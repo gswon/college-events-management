@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { authApi, type AuthSession } from '../services/authApi';
+import { saveSession } from '../services/authSession';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -12,23 +14,197 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-type AuthMode = 'login' | 'signup';
+type AuthMode = 'login' | 'signup' | 'verify';
 
 /**
  * Design-only authentication screen based on the supplied Nov 2026 Figma.
  * No credentials are sent or stored: the backend currently lacks auth endpoints.
  */
-export default function AuthScreen() {
+type AuthScreenProps = {
+  onAuthenticated?: (session: AuthSession) => void;
+};
+
+export default function AuthScreen({
+  onAuthenticated,
+}: AuthScreenProps) {
   const [mode, setMode] = useState<AuthMode>('login');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [busy, setBusy] = useState(false);
 
   function unavailable(action: string) {
     Alert.alert(
       `${action} unavailable`,
       'The authentication API has not been provided by the Backend team. No account or session was created or changed.',
+    );
+  }
+
+  async function handleAuth() {
+    if (busy) return;
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail.endsWith('@nyu.edu')) {
+      Alert.alert('Invalid email', 'Please use your @nyu.edu email.');
+      return;
+    }
+
+    if (!password) {
+      Alert.alert('Missing password', 'Please enter your password.');
+      return;
+    }
+
+    if (mode === 'signup') {
+      if (!fullName.trim()) {
+        Alert.alert('Missing name', 'Please enter your full name.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        Alert.alert('Password mismatch', 'Passwords do not match.');
+        return;
+      }
+    }
+
+    setBusy(true);
+
+    try {
+      if (mode === 'signup') {
+        await authApi.signup(normalizedEmail, password, fullName.trim());
+        setEmail(normalizedEmail);
+        setVerificationCode('');
+        setMode('verify');
+        Alert.alert('Check your email', 'Enter the verification code sent to your NYU email.');
+      } else {
+        const session = await authApi.login(normalizedEmail, password);
+        await saveSession(session);
+        onAuthenticated?.(session);
+        if (!onAuthenticated) {
+          Alert.alert('Success', 'You are now logged in.');
+        }
+      }
+    } catch (error) {
+      Alert.alert(
+        'Authentication failed',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleVerification() {
+    if (busy) return;
+
+    if (!verificationCode.trim()) {
+      Alert.alert('Missing code', 'Please enter your verification code.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const session = await authApi.verifyEmail(
+        email.trim().toLowerCase(),
+        verificationCode.trim()
+      );
+      await saveSession(session);
+      onAuthenticated?.(session);
+      if (!onAuthenticated) {
+        Alert.alert('Success', 'Your email is verified and you are logged in.');
+      }
+    } catch (error) {
+      Alert.alert(
+        'Verification failed',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resendVerification() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await authApi.resendVerification(email.trim().toLowerCase());
+      Alert.alert('Email sent', 'Please check your NYU inbox.');
+    } catch (error) {
+      Alert.alert(
+        'Unable to resend',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (mode === 'verify') {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.brandIcon}>
+              <Text style={styles.brandIconText}>NYU</Text>
+            </View>
+            <Text style={styles.eyebrow}>ONE MORE STEP</Text>
+            <Text style={styles.heading}>Verify Email</Text>
+            <Text style={styles.tagline}>
+              Enter the code sent to {email.trim().toLowerCase()}.
+            </Text>
+
+            <View style={[styles.fieldGroup, { marginTop: 40 }]}>
+              <Text style={styles.fieldLabel}>Verification Code</Text>
+              <TextInput
+                style={styles.field}
+                value={verificationCode}
+                onChangeText={setVerificationCode}
+                placeholder="Enter verification code"
+                placeholderTextColor="#B7B7BE"
+                autoCapitalize="none"
+                autoCorrect={false}
+                accessibilityLabel="Verification code"
+              />
+            </View>
+
+            <Pressable
+              style={styles.primaryButton}
+              onPress={handleVerification}
+              disabled={busy}
+              accessibilityRole="button"
+            >
+              <Text style={styles.primaryButtonText}>
+                {busy ? 'Please wait...' : 'Verify Email'}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.footerSwitch}
+              onPress={resendVerification}
+              disabled={busy}
+              accessibilityRole="button"
+            >
+              <Text style={styles.footerLink}>Resend Code</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.footerSwitch}
+              onPress={() => setMode('login')}
+              disabled={busy}
+              accessibilityRole="button"
+            >
+              <Text style={styles.footerLink}>Back to Log In</Text>
+            </Pressable>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     );
   }
 
@@ -149,10 +325,11 @@ export default function AuthScreen() {
 
           <Pressable
             style={styles.primaryButton}
-            onPress={() => unavailable(signup ? 'Create Account' : 'Log In')}
+            onPress={handleAuth}
+            disabled={busy}
             accessibilityRole="button"
           >
-            <Text style={styles.primaryButtonText}>{signup ? 'Create Account' : 'Log In'}</Text>
+            <Text style={styles.primaryButtonText}>{busy ? 'Please wait...' : signup ? 'Create Account' : 'Log In'}</Text>
           </Pressable>
 
           <View style={styles.orRow}>

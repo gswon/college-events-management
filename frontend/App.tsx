@@ -20,9 +20,16 @@ import { CampusEvent } from './src/data/events';
 import { createApi } from './src/services/api';
 import CalendarScreen from './src/screens/CalendarScreen';
 import AuthScreen from './src/screens/AuthScreen';
+import type { AuthSession } from './src/services/authApi';
+import { refreshSession, getSession, logoutSession } from './src/services/authSession';
 
 // Keep the same API configuration you were using previously.
-const api = createApi('http://127.0.0.1:8000', () => undefined);
+declare const process: { env: { EXPO_PUBLIC_API_BASE_URL?: string } };
+
+const api = createApi(
+  process.env.EXPO_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8002',
+  () => undefined
+);
 
 type ApiEvent = CampusEvent & {
   status?: 'ACTIVE' | 'CANCELLED' | 'HIDDEN';
@@ -172,7 +179,7 @@ function BottomNavigation({
   );
 }
 
-function MainApp() {
+function MainApp({ session, onLogout }: { session: AuthSession; onLogout: () => Promise<void> }) {
   const [activeScreen, setActiveScreen] = useState<Screen>('Home');
   const [friendCount, setFriendCount] = useState(0);
 
@@ -309,9 +316,11 @@ function MainApp() {
 ) : activeScreen === 'Friends' ? (
   <FriendsScreen onBack={() => setActiveScreen('Profile')} />
 ) : activeScreen === 'Calendar' ? (
-  <CalendarScreen onOpenFriends={() => setActiveScreen('Friends')} />
+  <CalendarScreen currentUserId={session.user.id} onOpenFriends={() => setActiveScreen('Friends')} />
 ) : activeScreen === 'Profile' ? (
   <ProfileScreen
+    sessionUser={session.user}
+    onLogout={onLogout}
     onOpenAccountSettings={() => setActiveScreen('Settings')}
     onOpenFriends={() => setActiveScreen('Friends')}
     friendCount={friendCount}
@@ -453,13 +462,70 @@ const styles = StyleSheet.create({
 });
 
 
-// Design review only. Toggle to true temporarily to preview the supplied
-// Log In / Sign Up Figma screens. This does not authenticate or create sessions.
-// Leave false for the existing Home / Calendar / Friends app and backend flows.
-const SHOW_AUTH_DESIGN_PREVIEW = false;
-
 export default function App() {
-  return SHOW_AUTH_DESIGN_PREVIEW ? (
-    <SafeAreaProvider><AuthScreen /></SafeAreaProvider>
-  ) : <MainApp />;
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+
+    async function restoreSession() {
+      try {
+        const restored = await refreshSession();
+        if (active) {
+          setSession(restored);
+        }
+      } catch (error) {
+        console.warn('Unable to refresh session:', error);
+        // On network failure, keep the local session and allow an API retry.
+        const stored = await getSession();
+        if (active) setSession(stored);
+      } finally {
+        if (active) {
+          setCheckingSession(false);
+        }
+      }
+    }
+
+    void restoreSession();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (checkingSession) {
+    return (
+      <SafeAreaProvider>
+        <View style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: '#FFFFFF',
+        }}>
+          <ActivityIndicator size="large" color="#57068C" />
+        </View>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (!session) {
+    return (
+      <SafeAreaProvider>
+        <AuthScreen onAuthenticated={setSession} />
+      </SafeAreaProvider>
+    );
+  }
+
+  async function handleLogout() {
+    try {
+      await logoutSession();
+    } catch (error) {
+      console.warn('Remote logout failed; local session cleared:', error);
+    } finally {
+      setSession(null);
+    }
+  }
+
+  return <MainApp key={session.user.id} session={session} onLogout={handleLogout} />;
 }

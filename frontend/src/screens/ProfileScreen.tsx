@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { loadLocalProfile, type LocalProfile } from '../services/localProfile';
+import type { AuthUser } from '../services/authApi';
 
 type Props = {
   onOpenFriends: () => void;
   onOpenAccountSettings: () => void;
   friendCount?: number;
+  sessionUser: AuthUser;
+  onLogout: () => Promise<void>;
 };
 
 /** Updated Figma Profile. Account data needs the team's authentication API. */
-export default function ProfileScreen({ onOpenFriends, onOpenAccountSettings, friendCount = 0 }: Props) {
+export default function ProfileScreen({ onOpenFriends, onOpenAccountSettings, friendCount = 0, sessionUser, onLogout }: Props) {
   const [localProfile, setLocalProfile] = useState<LocalProfile | null>(null);
   useEffect(() => {
     let mounted = true;
@@ -18,9 +21,9 @@ export default function ProfileScreen({ onOpenFriends, onOpenAccountSettings, fr
       .catch(() => { if (mounted) setLocalProfile(null); });
     return () => { mounted = false; };
   }, []);
-  const displayName = localProfile?.fullName || 'Account details unavailable';
-  const initials = localProfile?.fullName
-    ? localProfile.fullName.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()
+  const displayName = sessionUser.display_name;
+  const initials = sessionUser.display_name
+    ? sessionUser.display_name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()
     : 'NYU';
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -30,7 +33,7 @@ export default function ProfileScreen({ onOpenFriends, onOpenAccountSettings, fr
         <View style={styles.avatar}><Text style={styles.avatarText}>{initials}</Text></View>
         <View style={styles.identityText}>
           <Text style={styles.accountName}>{displayName}</Text>
-          <Text style={styles.accountEmail}>{localProfile?.email || 'Connect authentication to display your NYU account'}</Text>
+          <Text style={styles.accountEmail}>{sessionUser.email}</Text>
           <View style={styles.studentTag}><Text style={styles.studentTagText}>{localProfile?.program || 'NYU Student'}</Text></View>
         </View>
       </Pressable>
@@ -52,7 +55,10 @@ export default function ProfileScreen({ onOpenFriends, onOpenAccountSettings, fr
       <Pressable
         style={styles.logoutButton}
         accessibilityRole="button"
-        onPress={() => Alert.alert('Log Out unavailable', 'The backend does not yet provide a login or logout session. No user session was changed.')}
+        onPress={() => Alert.alert('Log Out', 'Log out of this account?', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Log Out', style: 'destructive', onPress: () => { void onLogout(); } },
+        ])}
       >
         <Text style={styles.logoutText}>Log Out</Text>
       </Pressable>
